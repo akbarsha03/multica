@@ -137,35 +137,49 @@ func TestCreateAndListWikiPages(t *testing.T) {
 }
 
 func TestRejectNonProposedRevisionConflict(t *testing.T) {
-	if testHandler == nil || testPool == nil { t.Skip("database not available") }
+	if testHandler == nil || testPool == nil {
+		t.Skip("database not available")
+	}
 	page := createWikiPage(t, "Guarded Doc", "base")
 	// propose
 	pw := httptest.NewRecorder()
 	pr := newRequest("POST", "/api/wiki/pages/"+page.ID+"/revisions", ProposeWikiRevisionRequest{Title: "Guarded Doc", Content: "x", Summary: "s"})
 	pr = withURLParam(pr, "pageId", page.ID)
 	testHandler.ProposeWikiRevision(pw, pr)
-	if pw.Code != http.StatusCreated { t.Fatalf("propose: %d (%s)", pw.Code, pw.Body.String()) }
+	if pw.Code != http.StatusCreated {
+		t.Fatalf("propose: %d (%s)", pw.Code, pw.Body.String())
+	}
 	var rev WikiRevisionResponse
-	if err := json.Unmarshal(pw.Body.Bytes(), &rev); err != nil { t.Fatalf("decode: %v", err) }
+	if err := json.Unmarshal(pw.Body.Bytes(), &rev); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
 	// merge it
 	mw := httptest.NewRecorder()
 	mr := newRequest("POST", "/api/wiki/revisions/"+rev.ID+"/merge", nil)
 	mr = withURLParam(mr, "revId", rev.ID)
 	testHandler.MergeWikiRevision(mw, mr)
-	if mw.Code != http.StatusOK { t.Fatalf("merge: %d", mw.Code) }
+	if mw.Code != http.StatusOK {
+		t.Fatalf("merge: %d", mw.Code)
+	}
 	// now reject the already-merged revision → expect 409
 	rw := httptest.NewRecorder()
 	rr := newRequest("POST", "/api/wiki/revisions/"+rev.ID+"/reject", nil)
 	rr = withURLParam(rr, "revId", rev.ID)
 	testHandler.RejectWikiRevision(rw, rr)
-	if rw.Code != http.StatusConflict { t.Fatalf("reject merged: want 409, got %d (%s)", rw.Code, rw.Body.String()) }
+	if rw.Code != http.StatusConflict {
+		t.Fatalf("reject merged: want 409, got %d (%s)", rw.Code, rw.Body.String())
+	}
 }
 
 func TestArchiveNonexistentPage404(t *testing.T) {
-	if testHandler == nil || testPool == nil { t.Skip("database not available") }
+	if testHandler == nil || testPool == nil {
+		t.Skip("database not available")
+	}
 	w := httptest.NewRecorder()
 	r := newRequest("DELETE", "/api/wiki/pages/00000000-0000-0000-0000-000000000000", nil)
 	r = withURLParam(r, "pageId", "00000000-0000-0000-0000-000000000000")
 	testHandler.ArchiveWikiPage(w, r)
-	if w.Code != http.StatusNotFound { t.Fatalf("archive unknown: want 404, got %d", w.Code) }
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("archive unknown: want 404, got %d", w.Code)
+	}
 }
