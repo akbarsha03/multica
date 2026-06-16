@@ -956,6 +956,16 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 				r.Get("/", h.GetNotificationPreferences)
 				r.Put("/", h.UpdateNotificationPreferences)
 			})
+
+			// Wiki
+			r.Route("/api/wiki", func(r chi.Router) {
+				r.Get("/pages", h.ListWikiPages)
+				r.Get("/pages/{pageId}", h.GetWikiPage)
+				r.Group(func(r chi.Router) {
+					r.Use(handler.RequireHumanActor)
+					r.Post("/pages", h.CreateWikiPage)
+				})
+			})
 		})
 	})
 
