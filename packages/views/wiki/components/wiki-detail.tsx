@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback } from "react";
-import { Archive, BookOpen, ChevronDown, ChevronRight, Clock, GitPullRequest } from "lucide-react";
+import { Archive, BookOpen, ChevronDown, ChevronRight, Clock, GitPullRequest, Pencil, Eye } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useWorkspacePaths } from "@multica/core/paths";
@@ -35,6 +35,7 @@ export function WikiDetail({ pageId }: WikiDetailProps) {
   const [title, setTitle] = useState<string>("");
   const [titleInitialized, setTitleInitialized] = useState(false);
   const [reviewingProposal, setReviewingProposal] = useState<WikiRevision | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
 
   // Sync title from server once on load
   if (page && !titleInitialized) {
@@ -47,6 +48,7 @@ export function WikiDetail({ pageId }: WikiDetailProps) {
   if (prevPageIdRef.current !== pageId) {
     prevPageIdRef.current = pageId;
     setTitleInitialized(false);
+    setIsEditing(false);
     if (page) {
       setTitle(page.title);
       setTitleInitialized(true);
@@ -70,8 +72,19 @@ export function WikiDetail({ pageId }: WikiDetailProps) {
 
   const handleTitleBlur = () => {
     if (!page) return;
-    const content = editorRef.current?.getMarkdown() ?? page.content;
+    const content = isEditing ? (editorRef.current?.getMarkdown() ?? page.content) : page.content;
     updatePage.mutate({ id: pageId, title: title || "Untitled", content });
+  };
+
+  const handleDoneEditing = () => {
+    if (!page) return;
+    const md = editorRef.current?.getMarkdown() ?? page.content;
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    updatePage.mutate({ id: pageId, title: title || page.title, content: md });
+    setIsEditing(false);
   };
 
   const handleArchive = () => {
@@ -139,6 +152,28 @@ export function WikiDetail({ pageId }: WikiDetailProps) {
               Review {pendingProposals.length} proposal{pendingProposals.length !== 1 ? "s" : ""}
             </Button>
           )}
+          {isEditing ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs gap-1.5"
+              onClick={handleDoneEditing}
+              disabled={updatePage.isPending}
+            >
+              <Eye className="h-3.5 w-3.5" />
+              Done
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs gap-1.5"
+              onClick={() => setIsEditing(true)}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              Edit
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="sm"
@@ -164,16 +199,20 @@ export function WikiDetail({ pageId }: WikiDetailProps) {
             className="w-full text-3xl font-bold bg-transparent border-none outline-none placeholder:text-muted-foreground/50 text-foreground"
           />
 
-          {/* Body editor */}
-          <ContentEditor
-            key={pageId}
-            ref={editorRef}
-            defaultValue={page.content}
-            onUpdate={debouncedContentSave}
-            debounceMs={1500}
-            placeholder="Write something..."
-            className="min-h-[200px]"
-          />
+          {/* Body: read-only view or editor */}
+          {isEditing ? (
+            <ContentEditor
+              key={pageId}
+              ref={editorRef}
+              defaultValue={page.content}
+              onUpdate={debouncedContentSave}
+              debounceMs={1500}
+              placeholder="Write something..."
+              className="min-h-[200px]"
+            />
+          ) : (
+            <ReadonlyContent content={page.content} />
+          )}
 
           {/* History section */}
           {newestFirstRevisions.length > 0 && (

@@ -79,7 +79,8 @@ export type WSEventType =
   | "github_installation:deleted"
   | "pull_request:linked"
   | "pull_request:updated"
-  | "pull_request:unlinked";
+  | "pull_request:unlinked"
+  | "wiki_changed";
 
 export interface WSMessage<T = unknown> {
   type: WSEventType;
@@ -463,6 +464,8 @@ export interface WSEventPayloadMap {
   "pull_request:linked": unknown;
   "pull_request:updated": unknown;
   "pull_request:unlinked": unknown;
+  // wiki_changed: broadcast when any wiki page/revision changes
+  "wiki_changed": unknown;
 }
 
 /**

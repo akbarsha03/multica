@@ -31,6 +31,7 @@ import {
   onIssueMetadataChanged,
 } from "../issues/ws-updaters";
 import { onInboxNew, onInboxInvalidate, onInboxIssueStatusChanged, onInboxIssueDeleted } from "../inbox/ws-updaters";
+import { onWikiChanged } from "../wiki/ws-updaters";
 import { inboxKeys } from "../inbox/queries";
 import {
   notificationPreferenceOptions,
@@ -537,6 +538,7 @@ export function useRealtimeSync(
     const specificEvents = new Set([
       "workspace:updated",
       "issue:updated", "issue:created", "issue:deleted", "issue_labels:changed", "issue_metadata:changed", "inbox:new",
+      "wiki_changed",
       "comment:created", "comment:updated", "comment:deleted",
       "comment:resolved", "comment:unresolved",
       "activity:created",
@@ -618,6 +620,11 @@ export function useRealtimeSync(
       const { item } = p as InboxNewPayload;
       if (!item) return;
       await handleInboxNew(qc, item);
+    });
+
+    const unsubWikiChanged = ws.on("wiki_changed", () => {
+      const wsId = getCurrentWsId();
+      if (wsId) onWikiChanged(qc, wsId);
     });
 
     // --- Timeline event handlers (global fallback) ---
@@ -1071,6 +1078,7 @@ export function useRealtimeSync(
       unsubIssueLabelsChanged();
       unsubIssueMetadataChanged();
       unsubInboxNew();
+      unsubWikiChanged();
       unsubCommentCreated();
       unsubCommentUpdated();
       unsubCommentDeleted();
