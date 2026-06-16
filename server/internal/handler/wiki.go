@@ -375,8 +375,17 @@ func (h *Handler) UpdateWikiPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Begin transaction: revision + page update must be atomic.
+	tx, err := h.TxStarter.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to start transaction")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	qtx := h.Queries.WithTx(tx)
+
 	// Create a merged revision.
-	rev, err := h.Queries.CreateWikiRevision(r.Context(), db.CreateWikiRevisionParams{
+	rev, err := qtx.CreateWikiRevision(r.Context(), db.CreateWikiRevisionParams{
 		PageID:         pageUUID,
 		WorkspaceID:    wsUUID,
 		Title:          req.Title,
@@ -393,7 +402,7 @@ func (h *Handler) UpdateWikiPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Update the page with the new content and current_revision_id.
-	updated, err := h.Queries.UpdateWikiPageContent(r.Context(), db.UpdateWikiPageContentParams{
+	updated, err := qtx.UpdateWikiPageContent(r.Context(), db.UpdateWikiPageContentParams{
 		ID:                pageUUID,
 		WorkspaceID:       wsUUID,
 		Title:             req.Title,
@@ -404,6 +413,11 @@ func (h *Handler) UpdateWikiPage(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update wiki page")
+		return
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to commit update")
 		return
 	}
 
@@ -430,6 +444,19 @@ func (h *Handler) ArchiveWikiPage(w http.ResponseWriter, r *http.Request) {
 
 	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
 	if !ok {
+		return
+	}
+
+	// Pre-flight: ensure the page exists before archiving.
+	if _, err := h.Queries.GetWikiPage(r.Context(), db.GetWikiPageParams{
+		ID:          pageUUID,
+		WorkspaceID: wsUUID,
+	}); err != nil {
+		if isNotFound(err) {
+			writeError(w, http.StatusNotFound, "wiki page not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to get wiki page")
 		return
 	}
 
@@ -617,7 +644,16 @@ func (h *Handler) MergeWikiRevision(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	merged, err := h.Queries.SetWikiRevisionStatus(r.Context(), db.SetWikiRevisionStatusParams{
+	// Begin transaction: status change + page update must be atomic.
+	tx, err := h.TxStarter.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to start transaction")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	qtx := h.Queries.WithTx(tx)
+
+	merged, err := qtx.SetWikiRevisionStatus(r.Context(), db.SetWikiRevisionStatusParams{
 		ID:           revUUID,
 		WorkspaceID:  wsUUID,
 		Status:       "merged",
@@ -629,7 +665,7 @@ func (h *Handler) MergeWikiRevision(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Apply the revision content to the page.
-	_, err = h.Queries.UpdateWikiPageContent(r.Context(), db.UpdateWikiPageContentParams{
+	_, err = qtx.UpdateWikiPageContent(r.Context(), db.UpdateWikiPageContentParams{
 		ID:                rev.PageID,
 		WorkspaceID:       wsUUID,
 		Title:             rev.Title,
@@ -639,7 +675,16 @@ func (h *Handler) MergeWikiRevision(w http.ResponseWriter, r *http.Request) {
 		UpdatedByID:       reviewerUUID,
 	})
 	if err != nil {
+		if isNotFound(err) {
+			writeError(w, http.StatusConflict, "cannot merge: wiki page is archived")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "failed to update page after merge")
+		return
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to commit merge")
 		return
 	}
 
@@ -667,6 +712,24 @@ func (h *Handler) RejectWikiRevision(w http.ResponseWriter, r *http.Request) {
 
 	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
 	if !ok {
+		return
+	}
+
+	rev, err := h.Queries.GetWikiRevision(r.Context(), db.GetWikiRevisionParams{
+		ID:          revUUID,
+		WorkspaceID: wsUUID,
+	})
+	if err != nil {
+		if isNotFound(err) {
+			writeError(w, http.StatusNotFound, "revision not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to get revision")
+		return
+	}
+
+	if rev.Status != "proposed" {
+		writeError(w, http.StatusConflict, "revision is not pending review")
 		return
 	}
 
