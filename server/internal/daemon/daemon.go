@@ -1655,6 +1655,18 @@ func (d *Daemon) reportRuntimeResultWithRetry(ctx context.Context, kind, runtime
 		"kind", kind, "runtime_id", runtimeID, "request_id", requestID, "error", lastErr)
 }
 
+// selfUpdateDisabled reports whether this daemon must refuse ALL CLI
+// self-updates (the periodic poll AND the server-triggered path). Set on
+// custom/fork builds so the operator's binary is never overwritten by an
+// upstream GitHub release. Controlled by MULTICA_DAEMON_NO_SELF_UPDATE.
+func selfUpdateDisabled() bool {
+	switch strings.TrimSpace(strings.ToLower(os.Getenv("MULTICA_DAEMON_NO_SELF_UPDATE"))) {
+	case "true", "1", "yes", "on":
+		return true
+	}
+	return false
+}
+
 // handleUpdate performs the CLI update when triggered by the server via heartbeat.
 func (d *Daemon) handleUpdate(ctx context.Context, runtimeID string, update *PendingUpdate) {
 	// Desktop-managed daemons share their CLI binary with the Electron app,
@@ -1666,6 +1678,18 @@ func (d *Daemon) handleUpdate(ctx context.Context, runtimeID string, update *Pen
 		d.reportUpdateResult(ctx, runtimeID, update.ID, map[string]any{
 			"status": "failed",
 			"error":  "CLI is managed by Multica Desktop — update the Desktop app to upgrade the CLI",
+		})
+		return
+	}
+
+	// Custom/fork builds opt out of self-update entirely so the operator's
+	// binary (e.g. a self-hosted fork with extra commands) is never replaced
+	// by an upstream release pulled from GitHub.
+	if selfUpdateDisabled() {
+		d.logger.Info("refusing CLI self-update: disabled on this daemon (MULTICA_DAEMON_NO_SELF_UPDATE)", "runtime_id", runtimeID, "update_id", update.ID)
+		d.reportUpdateResult(ctx, runtimeID, update.ID, map[string]any{
+			"status": "failed",
+			"error":  "CLI self-update is disabled on this daemon (running a custom build)",
 		})
 		return
 	}
