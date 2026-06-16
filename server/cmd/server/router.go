@@ -961,9 +961,16 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			r.Route("/api/wiki", func(r chi.Router) {
 				r.Get("/pages", h.ListWikiPages)
 				r.Get("/pages/{pageId}", h.GetWikiPage)
+				r.Get("/pages/{pageId}/revisions", h.ListWikiRevisions)
+				r.Get("/proposals", h.ListWikiProposals)
+				r.Post("/pages/{pageId}/revisions", h.ProposeWikiRevision)
 				r.Group(func(r chi.Router) {
 					r.Use(handler.RequireHumanActor)
 					r.Post("/pages", h.CreateWikiPage)
+					r.Patch("/pages/{pageId}", h.UpdateWikiPage)
+					r.Delete("/pages/{pageId}", h.ArchiveWikiPage)
+					r.Post("/revisions/{revId}/merge", h.MergeWikiRevision)
+					r.Post("/revisions/{revId}/reject", h.RejectWikiRevision)
 				})
 			})
 		})
