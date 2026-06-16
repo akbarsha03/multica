@@ -172,3 +172,4 @@ export type {
   BillingCheckoutSessionStatus,
   CreateBillingPortalSessionResponse,
 } from "./billing";
+export type { WikiPage, WikiRevision, WikiRevisionStatus, WikiPageTreeNode } from "./wiki";

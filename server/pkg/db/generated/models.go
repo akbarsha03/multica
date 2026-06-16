@@ -746,6 +746,40 @@ type WebhookDelivery struct {
 	CreatedAt              pgtype.Timestamptz `json:"created_at"`
 }
 
+type WikiPage struct {
+	ID                pgtype.UUID        `json:"id"`
+	WorkspaceID       pgtype.UUID        `json:"workspace_id"`
+	ParentID          pgtype.UUID        `json:"parent_id"`
+	Title             string             `json:"title"`
+	Slug              string             `json:"slug"`
+	Content           string             `json:"content"`
+	Position          int32              `json:"position"`
+	CurrentRevisionID pgtype.UUID        `json:"current_revision_id"`
+	CreatedByType     string             `json:"created_by_type"`
+	CreatedByID       pgtype.UUID        `json:"created_by_id"`
+	UpdatedByType     string             `json:"updated_by_type"`
+	UpdatedByID       pgtype.UUID        `json:"updated_by_id"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	ArchivedAt        pgtype.Timestamptz `json:"archived_at"`
+}
+
+type WikiRevision struct {
+	ID             pgtype.UUID        `json:"id"`
+	PageID         pgtype.UUID        `json:"page_id"`
+	WorkspaceID    pgtype.UUID        `json:"workspace_id"`
+	Title          string             `json:"title"`
+	Content        string             `json:"content"`
+	BaseRevisionID pgtype.UUID        `json:"base_revision_id"`
+	AuthorType     string             `json:"author_type"`
+	AuthorID       pgtype.UUID        `json:"author_id"`
+	Status         string             `json:"status"`
+	Summary        pgtype.Text        `json:"summary"`
+	ReviewedByID   pgtype.UUID        `json:"reviewed_by_id"`
+	ReviewedAt     pgtype.Timestamptz `json:"reviewed_at"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
 type Workspace struct {
 	ID           pgtype.UUID        `json:"id"`
 	Name         string             `json:"name"`

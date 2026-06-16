@@ -105,7 +105,9 @@
     "./skills": "./skills/index.ts",
     "./skills/frontmatter": "./skills/frontmatter.ts",
     "./skills/stores": "./skills/stores/index.ts",
-    "./autopilots/stores": "./autopilots/stores/index.ts"
+    "./autopilots/stores": "./autopilots/stores/index.ts",
+    "./wiki/queries": "./wiki/queries.ts",
+    "./wiki/mutations": "./wiki/mutations.ts"
   },
   "dependencies": {
     "@formatjs/intl-localematcher": "catalog:",

@@ -38,6 +38,8 @@ function workspaceScoped(slug: string) {
     skillDetail: (id: string) => `${ws}/skills/${encode(id)}`,
     settings: () => `${ws}/settings`,
     attachmentPreview: (id: string) => `${ws}/attachments/${encode(id)}/preview`,
+    wiki: () => `${ws}/wiki`,
+    wikiPage: (id: string) => `${ws}/wiki/${encode(id)}`,
   };
 }
 

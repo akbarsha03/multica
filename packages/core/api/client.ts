@@ -118,6 +118,8 @@ import type {
   CreateBillingCheckoutSessionResponse,
   BillingCheckoutSessionStatus,
   CreateBillingPortalSessionResponse,
+  WikiPage,
+  WikiRevision,
 } from "../types";
 import type { OnboardingCompletionPath } from "../onboarding/types";
 import type {
@@ -195,6 +197,9 @@ import {
   EMPTY_BILLING_CHECKOUT_SESSION_STATUS,
   EMPTY_CREATE_BILLING_PORTAL_SESSION_RESPONSE,
   EMPTY_CANCEL_TASK_RESPONSE,
+  WikiPagesResponseSchema,
+  WikiRevisionsResponseSchema,
+  WikiProposalsResponseSchema,
 } from "./schemas";
 
 /** Identifies the calling client to the server.
@@ -2158,5 +2163,64 @@ export class ApiClient {
       method: "POST",
       body: JSON.stringify({ token }),
     });
+  }
+
+  // Wiki
+  async listWikiPages(): Promise<{ pages: WikiPage[] }> {
+    const raw = await this.fetch<unknown>("/api/wiki/pages");
+    return parseWithFallback(raw, WikiPagesResponseSchema, { pages: [] }, {
+      endpoint: "GET /api/wiki/pages",
+    }) as { pages: WikiPage[] };
+  }
+
+  async getWikiPage(id: string): Promise<WikiPage> {
+    return this.fetch(`/api/wiki/pages/${id}`);
+  }
+
+  async createWikiPage(data: { title: string; content?: string; parent_id?: string }): Promise<WikiPage> {
+    return this.fetch("/api/wiki/pages", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateWikiPage(id: string, data: { title: string; content: string; summary?: string }): Promise<WikiPage> {
+    return this.fetch(`/api/wiki/pages/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async archiveWikiPage(id: string): Promise<void> {
+    await this.fetch(`/api/wiki/pages/${id}`, { method: "DELETE" });
+  }
+
+  async listWikiRevisions(pageId: string): Promise<{ revisions: WikiRevision[] }> {
+    const raw = await this.fetch<unknown>(`/api/wiki/pages/${pageId}/revisions`);
+    return parseWithFallback(raw, WikiRevisionsResponseSchema, { revisions: [] }, {
+      endpoint: "GET /api/wiki/pages/:id/revisions",
+    }) as { revisions: WikiRevision[] };
+  }
+
+  async listWikiProposals(): Promise<{ proposals: WikiRevision[] }> {
+    const raw = await this.fetch<unknown>("/api/wiki/proposals");
+    return parseWithFallback(raw, WikiProposalsResponseSchema, { proposals: [] }, {
+      endpoint: "GET /api/wiki/proposals",
+    }) as { proposals: WikiRevision[] };
+  }
+
+  async proposeWikiRevision(pageId: string, data: { title: string; content: string; summary?: string }): Promise<WikiRevision> {
+    return this.fetch(`/api/wiki/pages/${pageId}/revisions`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async mergeWikiRevision(revId: string): Promise<WikiRevision> {
+    return this.fetch(`/api/wiki/revisions/${revId}/merge`, { method: "POST" });
+  }
+
+  async rejectWikiRevision(revId: string): Promise<WikiRevision> {
+    return this.fetch(`/api/wiki/revisions/${revId}/reject`, { method: "POST" });
   }
 }

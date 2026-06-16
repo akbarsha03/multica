@@ -23,7 +23,7 @@ import {
 
 import { IssueDetail } from "../../issues/components";
 import { ErrorBoundary } from "@multica/ui/components/common/error-boundary";
-import { useNavigation } from "../../navigation";
+import { AppLink, useNavigation } from "../../navigation";
 import { toast } from "sonner";
 import {
   MoreHorizontal,
@@ -319,6 +319,16 @@ export function InboxPage() {
       {selected.body && (
         <div className="mt-4 whitespace-pre-wrap text-sm leading-relaxed text-foreground/80">
           {selected.body}
+        </div>
+      )}
+      {selected.type === "wiki_proposal" && selected.details?.wiki_page_id && (
+        <div className="mt-4 flex gap-2">
+          <Button
+            size="sm"
+            render={<AppLink href={wsPaths.wikiPage(selected.details.wiki_page_id)} />}
+          >
+            View wiki page
+          </Button>
         </div>
       )}
       {selected.type === "quick_create_failed" && selected.details?.original_prompt && (
