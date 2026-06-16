@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback } from "react";
-import { Archive, BookOpen, ChevronDown, ChevronRight, Clock } from "lucide-react";
+import { Archive, BookOpen, ChevronDown, ChevronRight, Clock, GitPullRequest } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useWorkspacePaths } from "@multica/core/paths";
@@ -14,6 +14,7 @@ import { useNavigation } from "../../navigation";
 import { PageHeader } from "../../layout/page-header";
 import { cn } from "@multica/ui/lib/utils";
 import type { WikiRevision } from "@multica/core/types";
+import { WikiReviewDialog } from "./wiki-review-dialog";
 
 interface WikiDetailProps {
   pageId: string;
@@ -33,6 +34,7 @@ export function WikiDetail({ pageId }: WikiDetailProps) {
 
   const [title, setTitle] = useState<string>("");
   const [titleInitialized, setTitleInitialized] = useState(false);
+  const [reviewingProposal, setReviewingProposal] = useState<WikiRevision | null>(null);
 
   // Sync title from server once on load
   if (page && !titleInitialized) {
@@ -128,13 +130,12 @@ export function WikiDetail({ pageId }: WikiDetailProps) {
               variant="outline"
               size="sm"
               className="h-7 text-xs gap-1.5"
-              onClick={() => {
-                // TODO(wiki): open review dialog (Task 4)
-              }}
+              onClick={() => setReviewingProposal(pendingProposals[0] ?? null)}
             >
               <span className="flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground">
                 {pendingProposals.length}
               </span>
+              <GitPullRequest className="h-3.5 w-3.5" />
               Review {pendingProposals.length} proposal{pendingProposals.length !== 1 ? "s" : ""}
             </Button>
           )}
@@ -190,6 +191,14 @@ export function WikiDetail({ pageId }: WikiDetailProps) {
           )}
         </div>
       </div>
+
+      {reviewingProposal && (
+        <WikiReviewDialog
+          proposal={reviewingProposal}
+          livePage={page}
+          onClose={() => setReviewingProposal(null)}
+        />
+      )}
     </div>
   );
 }
