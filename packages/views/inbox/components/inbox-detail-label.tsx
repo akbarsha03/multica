@@ -31,6 +31,7 @@ export function useTypeLabels(): Record<InboxItemType, string> {
     reaction_added: t(($) => $.types.reaction_added),
     quick_create_done: t(($) => $.types.quick_create_done),
     quick_create_failed: t(($) => $.types.quick_create_failed),
+    wiki_proposal: t(($) => $.types.wiki_proposal),
   };
 }
 
@@ -108,6 +109,11 @@ export function InboxDetailLabel({ item }: { item: InboxItem }) {
     case "quick_create_failed": {
       const detail = getQuickCreateFailureDetail(item);
       if (detail) return <span>{t(($) => $.labels.failed_with_detail, { detail })}</span>;
+      return <span>{typeLabels[item.type]}</span>;
+    }
+    case "wiki_proposal": {
+      const pageTitle = details.page_title;
+      if (pageTitle) return <span>{typeLabels[item.type]} · {pageTitle}</span>;
       return <span>{typeLabels[item.type]}</span>;
     }
     default:
