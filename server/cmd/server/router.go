@@ -992,10 +992,14 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 				r.Get("/pages/{pageId}", h.GetWikiPage)
 				r.Get("/pages/{pageId}/revisions", h.ListWikiRevisions)
 				r.Get("/proposals", h.ListWikiProposals)
+				// New pages: members AND agents create live (additive, low-risk).
+				r.Post("/pages", h.CreateWikiPage)
+				// Agent edits to an existing page become proposals (handler routes
+				// agent callers to a proposed revision; members edit live via PATCH).
 				r.Post("/pages/{pageId}/revisions", h.ProposeWikiRevision)
+				// Edits/merge/reject on existing pages stay human-only.
 				r.Group(func(r chi.Router) {
 					r.Use(handler.RequireHumanActor)
-					r.Post("/pages", h.CreateWikiPage)
 					r.Patch("/pages/{pageId}", h.UpdateWikiPage)
 					r.Delete("/pages/{pageId}", h.ArchiveWikiPage)
 					r.Post("/revisions/{revId}/merge", h.MergeWikiRevision)
