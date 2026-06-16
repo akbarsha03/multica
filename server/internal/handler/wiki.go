@@ -127,11 +127,15 @@ func (h *Handler) CreateWikiPage(w http.ResponseWriter, r *http.Request) {
 
 	page, err2 := h.Queries.CreateWikiPage(r.Context(), params)
 	if err2 != nil {
+		if isUniqueViolation(err2) {
+			writeError(w, http.StatusConflict, "a page with this title already exists in the workspace")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "failed to create wiki page")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, wikiPageToResponse(page))
+	writeJSON(w, http.StatusCreated, wikiPageToResponse(page))
 }
 
 // ListWikiPages handles GET /api/wiki/pages.

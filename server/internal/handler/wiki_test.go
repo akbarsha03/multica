@@ -12,8 +12,8 @@ func createWikiPage(t *testing.T, title, content string) WikiPageResponse {
 	w := httptest.NewRecorder()
 	r := newRequest("POST", "/api/wiki/pages", CreateWikiPageRequest{Title: title, Content: content})
 	testHandler.CreateWikiPage(w, r)
-	if w.Code != http.StatusOK {
-		t.Fatalf("create page: want 200, got %d (%s)", w.Code, w.Body.String())
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create page: want 201, got %d (%s)", w.Code, w.Body.String())
 	}
 	var resp WikiPageResponse
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
@@ -39,7 +39,9 @@ func TestCreateAndListWikiPages(t *testing.T) {
 	var list struct {
 		Pages []WikiPageResponse `json:"pages"`
 	}
-	json.Unmarshal(w.Body.Bytes(), &list)
+	if err := json.Unmarshal(w.Body.Bytes(), &list); err != nil {
+		t.Fatalf("decode list: %v", err)
+	}
 	found := false
 	for _, p := range list.Pages {
 		if p.ID == page.ID {
