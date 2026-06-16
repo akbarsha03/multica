@@ -877,3 +877,49 @@ export const CreateBillingPortalSessionResponseSchema = z.object({
 export const EMPTY_CREATE_BILLING_PORTAL_SESSION_RESPONSE: CreateBillingPortalSessionResponse = {
   url: "",
 };
+
+// ---------------------------------------------------------------------------
+// Wiki schemas — /api/wiki/pages and /api/wiki/revisions endpoints.
+// Lenient by the same rules as IssueSchema: string enums kept as z.string(),
+// nullable fields unioned with null, unknown fields pass through via .loose().
+// ---------------------------------------------------------------------------
+
+export const WikiPageSchema = z.object({
+  id: z.string(),
+  workspace_id: z.string(),
+  parent_id: z.string().nullable(),
+  current_revision_id: z.string().nullable(),
+  title: z.string(),
+  slug: z.string(),
+  content: z.string(),
+  position: z.number(),
+  created_by_type: z.string(),
+  created_by_id: z.string(),
+  updated_by_type: z.string(),
+  updated_by_id: z.string(),
+  created_at: z.string(),
+  updated_at: z.string(),
+  archived_at: z.string().nullable().optional(),
+}).loose();
+
+export const WikiPagesResponseSchema = z.object({ pages: z.array(WikiPageSchema) }).loose();
+
+export const WikiRevisionSchema = z.object({
+  id: z.string(),
+  page_id: z.string(),
+  workspace_id: z.string(),
+  title: z.string(),
+  content: z.string(),
+  base_revision_id: z.string().nullable(),
+  author_type: z.string(),
+  author_id: z.string(),
+  status: z.string(),
+  summary: z.string().nullable(),
+  reviewed_by_id: z.string().nullable(),
+  reviewed_at: z.string().nullable(),
+  created_at: z.string(),
+}).loose();
+
+export const WikiRevisionsResponseSchema = z.object({ revisions: z.array(WikiRevisionSchema) }).loose();
+
+export const WikiProposalsResponseSchema = z.object({ proposals: z.array(WikiRevisionSchema) }).loose();
