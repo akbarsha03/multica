@@ -28,8 +28,9 @@ var wikiPageListCmd = &cobra.Command{
 }
 
 var wikiPageGetCmd = &cobra.Command{
-	Use:   "get <id>",
-	Short: "Get a wiki page",
+	Use:   "get <id-or-slug>",
+	Short: "Get a wiki page by ID or slug",
+	Long:  "Get a wiki page by its UUID or slug (lowercased, hyphenated title). Run 'multica wiki page list' to find page IDs and slugs.",
 	Args:  exactArgs(1),
 	RunE:  runWikiPageGet,
 }
@@ -138,9 +139,16 @@ func runWikiPageGet(cmd *cobra.Command, args []string) error {
 	ctx, cancel := cli.APIContext(context.Background())
 	defer cancel()
 
-	pageID := args[0]
+	idOrSlug := args[0]
+	var apiPath string
+	if uuidRegexp.MatchString(idOrSlug) {
+		apiPath = "/api/wiki/pages/" + url.PathEscape(idOrSlug)
+	} else {
+		apiPath = "/api/wiki/pages/by-slug/" + url.PathEscape(idOrSlug)
+	}
+
 	var page map[string]any
-	if err := client.GetJSON(ctx, "/api/wiki/pages/"+url.PathEscape(pageID), &page); err != nil {
+	if err := client.GetJSON(ctx, apiPath, &page); err != nil {
 		return fmt.Errorf("get wiki page: %w", err)
 	}
 

@@ -989,6 +989,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			// Wiki
 			r.Route("/api/wiki", func(r chi.Router) {
 				r.Get("/pages", h.ListWikiPages)
+				r.Get("/pages/by-slug/{slug}", h.GetWikiPageBySlug)
 				r.Get("/pages/{pageId}", h.GetWikiPage)
 				r.Get("/pages/{pageId}/revisions", h.ListWikiRevisions)
 				r.Get("/proposals", h.ListWikiProposals)

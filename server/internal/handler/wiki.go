@@ -138,6 +138,7 @@ func (h *Handler) CreateWikiPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, wikiPageToResponse(page))
+	h.publish(protocol.EventWikiChanged, workspaceID, actorType, actorID, map[string]any{"page_id": uuidToString(page.ID)})
 }
 
 // ListWikiPages handles GET /api/wiki/pages.
@@ -197,6 +198,41 @@ func (h *Handler) GetWikiPage(w http.ResponseWriter, r *http.Request) {
 	page, err := h.Queries.GetWikiPage(r.Context(), db.GetWikiPageParams{
 		ID:          pageUUID,
 		WorkspaceID: wsUUID,
+	})
+	if err != nil {
+		if isNotFound(err) {
+			writeError(w, http.StatusNotFound, "wiki page not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to get wiki page")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, wikiPageToResponse(page))
+}
+
+// GetWikiPageBySlug handles GET /api/wiki/pages/by-slug/{slug}.
+func (h *Handler) GetWikiPageBySlug(w http.ResponseWriter, r *http.Request) {
+	if _, ok := requireUserID(w, r); !ok {
+		return
+	}
+
+	workspaceID := h.resolveWorkspaceID(r)
+	if workspaceID == "" {
+		writeError(w, http.StatusBadRequest, "workspace_id is required")
+		return
+	}
+
+	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	if !ok {
+		return
+	}
+
+	slug := chi.URLParam(r, "slug")
+
+	page, err := h.Queries.GetWikiPageBySlug(r.Context(), db.GetWikiPageBySlugParams{
+		WorkspaceID: wsUUID,
+		Slug:        slug,
 	})
 	if err != nil {
 		if isNotFound(err) {
@@ -422,11 +458,13 @@ func (h *Handler) UpdateWikiPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, wikiPageToResponse(updated))
+	h.publish(protocol.EventWikiChanged, workspaceID, actorType, actorID, map[string]any{"page_id": uuidToString(updated.ID)})
 }
 
 // ArchiveWikiPage handles DELETE /api/wiki/pages/{pageId}.
 func (h *Handler) ArchiveWikiPage(w http.ResponseWriter, r *http.Request) {
-	if _, ok := requireUserID(w, r); !ok {
+	userID, ok := requireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -468,7 +506,9 @@ func (h *Handler) ArchiveWikiPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	actorType, actorID := h.resolveActor(r, userID, workspaceID)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	h.publish(protocol.EventWikiChanged, workspaceID, actorType, actorID, map[string]any{"page_id": pageID})
 }
 
 // ProposeWikiRevisionRequest is the request body for proposing a revision.
@@ -552,6 +592,7 @@ func (h *Handler) ProposeWikiRevision(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, wikiRevisionToResponse(rev))
+	h.publish(protocol.EventWikiChanged, workspaceID, actorType, actorID, map[string]any{"page_id": uuidToString(rev.PageID)})
 }
 
 // notifyAgentWikiProposal creates an inbox item for the workspace owner when an agent
@@ -689,6 +730,7 @@ func (h *Handler) MergeWikiRevision(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, wikiRevisionToResponse(merged))
+	h.publish(protocol.EventWikiChanged, workspaceID, "member", actorID, map[string]any{"page_id": uuidToString(rev.PageID)})
 }
 
 // RejectWikiRevision handles POST /api/wiki/revisions/{revId}/reject.
@@ -755,4 +797,5 @@ func (h *Handler) RejectWikiRevision(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, wikiRevisionToResponse(rejected))
+	h.publish(protocol.EventWikiChanged, workspaceID, "member", actorID, map[string]any{"page_id": uuidToString(rev.PageID)})
 }

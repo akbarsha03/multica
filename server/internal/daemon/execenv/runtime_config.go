@@ -748,7 +748,7 @@ func buildMetaSkillContent(provider string, ctx TaskContextForEnv) string {
 	b.WriteString("The workspace has a persistent **wiki** for durable documentation. Prefer it over long prose in issue comments when the user asks you to \"create a wiki page\", \"document\", or produce reference material that should outlive the issue.\n\n")
 	b.WriteString("- **Create a page** (goes live immediately): `multica wiki page create --title \"<title>\" --content-file <path>`\n")
 	b.WriteString("- **List pages**: `multica wiki page list [--output json]`\n")
-	b.WriteString("- **Read a page**: `multica wiki page get <id> [--output json]`\n")
+	b.WriteString("- **Read a page** (by ID or slug): `multica wiki page get <id-or-slug> [--output json]` — slug is the page's lowercased, hyphenated title; run `multica wiki page list` to find a page by title\n")
 	b.WriteString("- **Edit an existing page** (creates a PROPOSED revision a human reviews/approves — you cannot edit an existing page directly): `multica wiki page propose <pageId> --title \"<title>\" --content-file <path> [--summary \"<one-line summary>\"]`\n\n")
 	b.WriteString("Comments are for conversation; the wiki is for durable docs.\n\n")
 
