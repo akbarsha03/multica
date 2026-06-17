@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { notificationPreferenceOptions } from "@multica/core/notification-preferences/queries";
 import { useUpdateNotificationPreferences } from "@multica/core/notification-preferences/mutations";
+import { useCommentSoundStore } from "@multica/core/preferences";
 import type { NotificationGroupKey, NotificationPreferences } from "@multica/core/types";
 import { Card, CardContent } from "@multica/ui/components/ui/card";
 import { Switch } from "@multica/ui/components/ui/switch";
@@ -50,6 +51,9 @@ export function NotificationsTab() {
   };
 
   const systemEnabled = preferences.system_notifications !== "muted";
+
+  const soundEnabled = useCommentSoundStore((s) => s.enabled);
+  const setSoundEnabled = useCommentSoundStore((s) => s.setEnabled);
 
   return (
     <div className="space-y-8">
@@ -115,6 +119,32 @@ export function NotificationsTab() {
         {/* Web-only: the browser permission banners require. Renders nothing on
             desktop (OS-native delivery) or where the Notification API is absent. */}
         <BrowserNotificationSetting />
+      </section>
+
+      <section className="space-y-4">
+        <div>
+          <h2 className="text-sm font-semibold">{t(($) => $.notifications.sound.title)}</h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            {t(($) => $.notifications.sound.description)}
+          </p>
+        </div>
+
+        <Card>
+          <CardContent>
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5 pr-4">
+                <p className="text-sm font-medium">{t(($) => $.notifications.sound.label)}</p>
+                <p className="text-xs text-muted-foreground">
+                  {t(($) => $.notifications.sound.hint)}
+                </p>
+              </div>
+              <Switch
+                checked={soundEnabled}
+                onCheckedChange={setSoundEnabled}
+              />
+            </div>
+          </CardContent>
+        </Card>
       </section>
     </div>
   );

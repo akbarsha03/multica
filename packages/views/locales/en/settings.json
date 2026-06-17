@@ -85,6 +85,12 @@
       "label": "Show system notifications",
       "hint": "Show a banner from your operating system for new inbox items when the app isn't focused."
     },
+    "sound": {
+      "title": "Sound",
+      "description": "Play a sound on this device when a new comment is posted.",
+      "label": "Play a sound for new comments",
+      "hint": "Plays a short chime whenever anyone comments on any issue in this workspace. This device only."
+    },
     "browser": {
       "label": "Browser notifications",
       "hint": "Allow this browser to show notification banners for new inbox items.",
