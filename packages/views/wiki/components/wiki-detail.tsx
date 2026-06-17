@@ -119,7 +119,7 @@ export function WikiDetail({ pageId }: WikiDetailProps) {
           <BookOpen className="h-4 w-4 text-muted-foreground" />
           <Skeleton className="h-4 w-32" />
         </PageHeader>
-        <div className="mx-auto w-full max-w-3xl px-8 py-8 space-y-4">
+        <div className="mx-auto w-full max-w-5xl px-8 py-8 space-y-4">
           <Skeleton className="h-8 w-2/3" />
           <Skeleton className="h-4 w-full" />
           <Skeleton className="h-4 w-5/6" />
@@ -198,7 +198,7 @@ export function WikiDetail({ pageId }: WikiDetailProps) {
       </PageHeader>
 
       <div className="flex-1 min-h-0 overflow-y-auto">
-        <div className="mx-auto w-full max-w-3xl px-8 py-8 space-y-6">
+        <div className="mx-auto w-full max-w-5xl px-8 py-8 space-y-6">
           {/* Editable title */}
           <input
             type="text"
