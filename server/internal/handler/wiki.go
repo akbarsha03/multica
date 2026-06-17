@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
 )
@@ -184,21 +185,29 @@ func (h *Handler) GetWikiPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pageID := chi.URLParam(r, "pageId")
-	pageUUID, ok := parseUUIDOrBadRequest(w, pageID, "page id")
-	if !ok {
-		return
-	}
-
 	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
 	if !ok {
 		return
 	}
 
-	page, err := h.Queries.GetWikiPage(r.Context(), db.GetWikiPageParams{
-		ID:          pageUUID,
-		WorkspaceID: wsUUID,
-	})
+	// pageId accepts either a UUID or a human-readable slug, mirroring the
+	// `multica wiki page get <id-or-slug>` CLI. Agent-authored markdown links
+	// reference pages by slug (e.g. /wiki/<slug>), so resolve both shapes here
+	// instead of 400-ing on a non-UUID.
+	pageRef := chi.URLParam(r, "pageId")
+	var page db.WikiPage
+	var err error
+	if pageUUID, perr := util.ParseUUID(pageRef); perr == nil {
+		page, err = h.Queries.GetWikiPage(r.Context(), db.GetWikiPageParams{
+			ID:          pageUUID,
+			WorkspaceID: wsUUID,
+		})
+	} else {
+		page, err = h.Queries.GetWikiPageBySlug(r.Context(), db.GetWikiPageBySlugParams{
+			WorkspaceID: wsUUID,
+			Slug:        pageRef,
+		})
+	}
 	if err != nil {
 		if isNotFound(err) {
 			writeError(w, http.StatusNotFound, "wiki page not found")

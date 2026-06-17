@@ -183,3 +183,40 @@ func TestArchiveNonexistentPage404(t *testing.T) {
 		t.Fatalf("archive unknown: want 404, got %d", w.Code)
 	}
 }
+
+// GetWikiPage must resolve the pageId param as either a UUID or a slug, so that
+// agent-authored markdown links of the form /wiki/<slug> load the page.
+func TestGetWikiPageResolvesSlug(t *testing.T) {
+	if testHandler == nil || testPool == nil {
+		t.Skip("database not available")
+	}
+	page := createWikiPage(t, "Deploy Guide", "steps")
+	if page.Slug == "" {
+		t.Fatalf("expected a non-empty slug, got %+v", page)
+	}
+
+	// Fetch by slug passed through the {pageId} param (not the by-slug route).
+	w := httptest.NewRecorder()
+	r := newRequest("GET", "/api/wiki/pages/"+page.Slug, nil)
+	r = withURLParam(r, "pageId", page.Slug)
+	testHandler.GetWikiPage(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("get by slug: want 200, got %d (%s)", w.Code, w.Body.String())
+	}
+	var got WikiPageResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got.ID != page.ID || got.Content != "steps" {
+		t.Fatalf("slug lookup returned wrong page: want id=%s content=steps, got %+v", page.ID, got)
+	}
+
+	// An unknown slug must 404, not 400.
+	nw := httptest.NewRecorder()
+	nr := newRequest("GET", "/api/wiki/pages/no-such-slug", nil)
+	nr = withURLParam(nr, "pageId", "no-such-slug")
+	testHandler.GetWikiPage(nw, nr)
+	if nw.Code != http.StatusNotFound {
+		t.Fatalf("unknown slug: want 404, got %d (%s)", nw.Code, nw.Body.String())
+	}
+}

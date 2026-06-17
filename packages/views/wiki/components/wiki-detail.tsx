@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { Archive, BookOpen, ChevronDown, ChevronRight, Clock, GitPullRequest, Pencil, Eye } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
@@ -28,6 +28,16 @@ export function WikiDetail({ pageId }: WikiDetailProps) {
   const { data: page, isLoading } = useQuery(wikiPageOptions(wsId, pageId));
   const { data: revisions = [] } = useQuery(wikiRevisionsOptions(wsId, pageId));
   const { data: allProposals = [] } = useQuery(wikiProposalsOptions(wsId));
+
+  // Agent-authored links reference pages by slug (/wiki/<slug>). The page query
+  // resolves slug-or-UUID, but revisions/mutations key on the raw param — so
+  // once the page loads, canonicalize the URL to its UUID. After the replace
+  // the route remounts with the real id and everything keys on it.
+  useEffect(() => {
+    if (page && page.id !== pageId) {
+      router.replace(paths.wikiPage(page.id));
+    }
+  }, [page, pageId, router, paths]);
 
   const updatePage = useUpdateWikiPage();
   const archivePage = useArchiveWikiPage();
