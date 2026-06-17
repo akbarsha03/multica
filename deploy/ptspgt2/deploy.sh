@@ -10,7 +10,7 @@ export PATH=/usr/local/go/bin:$PATH
 # Stamp this so the daemon reports a real version (NOT "dev"), otherwise the UI
 # flags the CLI as outdated and an "Update" click would try to self-replace the
 # fork binary. Bump when rebasing onto a newer upstream.
-VERSION="0.3.23"
+VERSION="0.3.24"
 DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 LDFLAGS="-X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}"
 

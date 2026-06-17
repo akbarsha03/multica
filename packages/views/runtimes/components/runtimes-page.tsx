@@ -35,6 +35,10 @@ import { RuntimeProfilesDialog } from "./runtime-profiles-dialog";
 import { ProviderLogo } from "./provider-logo";
 import { RuntimeList, buildWorkloadIndex } from "./runtime-list";
 import {
+  pendingRuntimesForProfiles,
+  type PendingRuntimeProfile,
+} from "./pending-runtime";
+import {
   buildRuntimeMachines,
   filterRuntimeMachines,
   runtimeMachineCounts,
@@ -92,6 +96,8 @@ export function RuntimesPage({
   cloudRuntimeEnabled = false,
 }: RuntimesPageProps = {}) {
   const isLoading = useAuthStore((s) => s.isLoading);
+  const { t } = useT("runtimes");
+  const pendingMachineName = t(($) => $.machine.pending_custom_runtimes);
   const currentUserId = useAuthStore((s) => s.user?.id);
   const wsId = useWorkspaceId();
   const qc = useQueryClient();
@@ -111,6 +117,9 @@ export function RuntimesPage({
   }, []);
   const [showConnectDialog, setShowConnectDialog] = useState(false);
   const [showCloudRuntimeDialog, setShowCloudRuntimeDialog] = useState(false);
+  const [pendingProfiles, setPendingProfiles] = useState<PendingRuntimeProfile[]>(
+    [],
+  );
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({
     id: "multica_runtimes_layout",
   });
@@ -140,6 +149,42 @@ export function RuntimesPage({
   const updatableIds = useUpdatableRuntimeIds(wsId);
   const now = useNowTick();
 
+  useEffect(() => {
+    if (pendingProfiles.length === 0) return;
+    const registeredProfileIds = new Set(
+      runtimes
+        .map((runtime) => runtime.profile_id)
+        .filter((profileId): profileId is string => !!profileId),
+    );
+    if (registeredProfileIds.size === 0) return;
+    setPendingProfiles((current) => {
+      const next = current.filter(
+        ({ profile }) => !registeredProfileIds.has(profile.id),
+      );
+      return next.length === current.length ? current : next;
+    });
+  }, [pendingProfiles.length, runtimes]);
+
+  const visibleRuntimes = useMemo(
+    () =>
+      pendingRuntimesForProfiles({
+        pendingProfiles,
+        runtimes,
+        ownerId: currentUserId,
+        localDaemonId,
+        localMachineName,
+        fallbackMachineName: pendingMachineName,
+      }),
+    [
+      pendingProfiles,
+      runtimes,
+      currentUserId,
+      localDaemonId,
+      localMachineName,
+      pendingMachineName,
+    ],
+  );
+
   const workloadIndex = useMemo(
     () => buildWorkloadIndex(agents, snapshot),
     [agents, snapshot],
@@ -147,7 +192,7 @@ export function RuntimesPage({
 
   const machines = useMemo(
     () =>
-      buildRuntimeMachines(runtimes, {
+      buildRuntimeMachines(visibleRuntimes, {
         now,
         localDaemonId,
         localMachineName,
@@ -156,7 +201,7 @@ export function RuntimesPage({
         ensureLocalMachine: hasLocalMachine,
       }),
     [
-      runtimes,
+      visibleRuntimes,
       now,
       localDaemonId,
       localMachineName,
@@ -197,7 +242,7 @@ export function RuntimesPage({
 
   if (isLoading || fetching) return <RuntimesPageSkeleton />;
 
-  const totalCount = runtimes.length;
+  const totalCount = visibleRuntimes.length;
   // Desktop always has a synthesized local machine row, so the
   // "register a runtime" empty state would hide the Start button.
   const showEmpty = totalCount === 0 && !bootstrapping && !hasLocalMachine;
@@ -293,6 +338,12 @@ export function RuntimesPage({
       {canManageProfiles && showProfilesDialog && (
         <RuntimeProfilesDialog
           wsId={wsId}
+          onProfileCreated={(profile) =>
+            setPendingProfiles((current) => [
+              ...current.filter((item) => item.profile.id !== profile.id),
+              { profile, createdAt: Date.now() },
+            ])
+          }
           onClose={() => setShowProfilesDialog(false)}
         />
       )}
@@ -332,16 +383,24 @@ function PageHeaderBar({
           </span>
         )}
       </div>
+      {/* Quiet chrome buttons (outline, icon-only below md) — primary is
+          reserved for the empty state's CTA. All three share the same
+          dimensions, padding, and responsive icon-only behavior so the
+          header reads as a single, consistent action group. */}
       <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
         {canManageProfiles && (
           <Button
             type="button"
             size="sm"
             variant="outline"
+            className="h-8 w-8 gap-1 px-0 md:w-auto md:px-2.5"
+            aria-label={t(($) => $.profiles.cta)}
             onClick={onAddRuntime}
           >
             <Plus className="h-3.5 w-3.5" />
-            {t(($) => $.profiles.cta)}
+            <span className="hidden md:inline">
+              {t(($) => $.profiles.cta)}
+            </span>
           </Button>
         )}
         {cloudRuntimeEnabled && (
@@ -349,14 +408,16 @@ function PageHeaderBar({
             type="button"
             size="sm"
             variant="outline"
+            className="h-8 w-8 gap-1 px-0 md:w-auto md:px-2.5"
+            aria-label={t(($) => $.cloud_runtime.action)}
             onClick={onOpenCloudRuntime}
           >
-            <Cloud className="h-3 w-3" />
-            {t(($) => $.cloud_runtime.action)}
+            <Cloud className="h-3.5 w-3.5" />
+            <span className="hidden md:inline">
+              {t(($) => $.cloud_runtime.action)}
+            </span>
           </Button>
         )}
-        {/* Quiet chrome button (outline, icon-only below md) — primary is
-            reserved for the empty state's CTA. */}
         <Button
           type="button"
           size="sm"
