@@ -1,0 +1,14 @@
+[Unit]
+Description=Multica web (source-run, fork feat/wiki-v2)
+After=network-online.target multica-backend-src.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=HOME=/root
+ExecStart=/opt/multica-app/run-frontend.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

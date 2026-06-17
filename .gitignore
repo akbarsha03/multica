@@ -68,3 +68,6 @@ server/server
 data/
 .kilo
 .idea
+
+# source-run backend binary (built by deploy)
+/server/multica-server

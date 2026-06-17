@@ -1,0 +1,14 @@
+[Unit]
+Description=Multica backend (source-run, fork feat/wiki-v2)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=HOME=/root
+ExecStart=/opt/multica-app/run-backend.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
