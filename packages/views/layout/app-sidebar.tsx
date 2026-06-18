@@ -471,6 +471,30 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [pathname]);
 
+  // Global Cmd/Ctrl+I: cycle between Inbox and Issues. On Inbox it jumps to
+  // Issues; from anywhere else it jumps to Inbox — so repeated presses toggle
+  // between the two. Skipped while typing / in the editor so it doesn't steal
+  // the rich-text italic shortcut (also Cmd/Ctrl+I).
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.key !== "i" && e.key !== "I") || !(e.metaKey || e.ctrlKey)) return;
+      if (e.altKey || e.shiftKey) return;
+      const tag = (e.target as HTMLElement)?.tagName;
+      const isEditable =
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        tag === "SELECT" ||
+        (e.target as HTMLElement)?.isContentEditable;
+      if (isEditable) return;
+      e.preventDefault();
+      const inbox = p.inbox();
+      const onInbox = pathname === inbox || pathname.startsWith(inbox + "/");
+      push(onInbox ? p.issues() : inbox);
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [pathname, p, push]);
+
   return (
       <Sidebar variant="inset">
         {topSlot}
