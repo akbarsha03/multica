@@ -750,7 +750,7 @@ func buildMetaSkillContent(provider string, ctx TaskContextForEnv) string {
 	b.WriteString("- **Create a page** (goes live immediately): `multica wiki page create --title \"<title>\" --content-file <path>`\n")
 	b.WriteString("- **List pages**: `multica wiki page list [--output json]`\n")
 	b.WriteString("- **Read a page** (by ID or slug): `multica wiki page get <id-or-slug> [--output json]` — slug is the page's lowercased, hyphenated title; run `multica wiki page list` to find a page by title\n")
-	b.WriteString("- **Edit an existing page** (creates a PROPOSED revision a human reviews/approves — you cannot edit an existing page directly): `multica wiki page propose <pageId> --title \"<title>\" --content-file <path> [--summary \"<one-line summary>\"]`\n")
+	b.WriteString("- **Edit an existing page** (applies live immediately; each edit is recorded as a revision so history is preserved): `multica wiki page propose <pageId> --title \"<title>\" --content-file <path> [--summary \"<one-line summary>\"]`\n")
 	b.WriteString("- **Link to a page** from a comment or description: `[Page Title](/wiki/<slug>)` — a plain markdown link to `/wiki/<slug>` renders as a clickable link that opens the page in the workspace.\n\n")
 	b.WriteString("Comments are for conversation; the wiki is for durable docs.\n\n")
 

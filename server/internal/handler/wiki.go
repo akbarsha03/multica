@@ -2,7 +2,6 @@ package handler
 
 import (
 	"encoding/json"
-	"log/slog"
 	"net/http"
 	"regexp"
 	"strings"
@@ -528,8 +527,9 @@ type ProposeWikiRevisionRequest struct {
 }
 
 // ProposeWikiRevision handles POST /api/wiki/pages/{pageId}/revisions.
-// Creates a proposed revision (by member or agent). On agent proposal, creates
-// an inbox notification for the workspace owner (best-effort).
+// Applies the edit live (by member or agent) and records a "merged" revision so
+// the full edit history is preserved. Agents edit existing pages directly — there
+// is no human-approval step; the revision log is the audit trail.
 func (h *Handler) ProposeWikiRevision(w http.ResponseWriter, r *http.Request) {
 	userID, ok := requireUserID(w, r)
 	if !ok {
@@ -579,7 +579,16 @@ func (h *Handler) ProposeWikiRevision(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rev, err := h.Queries.CreateWikiRevision(r.Context(), db.CreateWikiRevisionParams{
+	// Begin transaction: revision + page update must be atomic.
+	tx, err := h.TxStarter.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to start transaction")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	qtx := h.Queries.WithTx(tx)
+
+	rev, err := qtx.CreateWikiRevision(r.Context(), db.CreateWikiRevisionParams{
 		PageID:         pageUUID,
 		WorkspaceID:    wsUUID,
 		Title:          req.Title,
@@ -587,7 +596,7 @@ func (h *Handler) ProposeWikiRevision(w http.ResponseWriter, r *http.Request) {
 		BaseRevisionID: page.CurrentRevisionID,
 		AuthorType:     actorType,
 		AuthorID:       actorUUID,
-		Status:         "proposed",
+		Status:         "merged",
 		Summary:        strToText(req.Summary),
 	})
 	if err != nil {
@@ -595,54 +604,26 @@ func (h *Handler) ProposeWikiRevision(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Best-effort inbox notification for agent proposals.
-	if actorType == "agent" {
-		h.notifyAgentWikiProposal(r, wsUUID, workspaceID, actorUUID, actorID, page, rev)
+	if _, err := qtx.UpdateWikiPageContent(r.Context(), db.UpdateWikiPageContentParams{
+		ID:                pageUUID,
+		WorkspaceID:       wsUUID,
+		Title:             req.Title,
+		Content:           req.Content,
+		CurrentRevisionID: rev.ID,
+		UpdatedByType:     actorType,
+		UpdatedByID:       actorUUID,
+	}); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update wiki page")
+		return
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to commit revision")
+		return
 	}
 
 	writeJSON(w, http.StatusCreated, wikiRevisionToResponse(rev))
 	h.publish(protocol.EventWikiChanged, workspaceID, actorType, actorID, map[string]any{"page_id": uuidToString(rev.PageID)})
-}
-
-// notifyAgentWikiProposal creates an inbox item for the workspace owner when an agent
-// proposes a wiki revision. This is best-effort — errors are logged but do not fail the request.
-func (h *Handler) notifyAgentWikiProposal(r *http.Request, wsUUID pgtype.UUID, workspaceID string, agentUUID pgtype.UUID, agentID string, page db.WikiPage, rev db.WikiRevision) {
-	ownerUserID, err := h.Queries.GetWorkspaceOwnerUserID(r.Context(), wsUUID)
-	if err != nil {
-		slog.Warn("wiki: could not find workspace owner for inbox notify", "workspace_id", workspaceID, "error", err)
-		return
-	}
-
-	summary := ""
-	if rev.Summary.Valid {
-		summary = rev.Summary.String
-	}
-
-	details, _ := json.Marshal(map[string]any{
-		"wiki_page_id":     uuidToString(page.ID),
-		"wiki_revision_id": uuidToString(rev.ID),
-		"page_title":       page.Title,
-	})
-
-	item, err := h.Queries.CreateInboxItem(r.Context(), db.CreateInboxItemParams{
-		WorkspaceID:   wsUUID,
-		RecipientType: "member",
-		RecipientID:   ownerUserID,
-		Type:          "wiki_proposal",
-		Severity:      "action_required",
-		Title:         "Agent proposed an edit: " + page.Title,
-		Body:          strToText(summary),
-		ActorType:     strToText("agent"),
-		ActorID:       agentUUID,
-		Details:       details,
-	})
-	if err != nil {
-		slog.Warn("wiki: failed to create inbox item for agent proposal", "error", err)
-		return
-	}
-
-	resp := inboxToResponse(item)
-	h.publish(protocol.EventInboxNew, workspaceID, "agent", agentID, map[string]any{"item": resp})
 }
 
 // MergeWikiRevision handles POST /api/wiki/revisions/{revId}/merge.

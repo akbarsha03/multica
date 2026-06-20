@@ -56,7 +56,9 @@ func TestUpdateWikiPageCreatesMergedRevision(t *testing.T) {
 	}
 }
 
-func TestProposeThenMergeRevision(t *testing.T) {
+// Editing an existing page via POST /revisions applies the change live (no
+// approval step) and records a "merged" revision for history.
+func TestProposeRevisionAppliesLive(t *testing.T) {
 	if testHandler == nil || testPool == nil {
 		t.Skip("database not available")
 	}
@@ -66,22 +68,16 @@ func TestProposeThenMergeRevision(t *testing.T) {
 	pr = withURLParam(pr, "pageId", page.ID)
 	testHandler.ProposeWikiRevision(pw, pr)
 	if pw.Code != http.StatusCreated {
-		t.Fatalf("propose: want 201, got %d (%s)", pw.Code, pw.Body.String())
+		t.Fatalf("edit: want 201, got %d (%s)", pw.Code, pw.Body.String())
 	}
 	var rev WikiRevisionResponse
 	if err := json.Unmarshal(pw.Body.Bytes(), &rev); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if rev.Status != "proposed" {
-		t.Fatalf("want proposed, got %s", rev.Status)
+	if rev.Status != "merged" {
+		t.Fatalf("want merged, got %s", rev.Status)
 	}
-	mw := httptest.NewRecorder()
-	mr := newRequest("POST", "/api/wiki/revisions/"+rev.ID+"/merge", nil)
-	mr = withURLParam(mr, "revId", rev.ID)
-	testHandler.MergeWikiRevision(mw, mr)
-	if mw.Code != http.StatusOK {
-		t.Fatalf("merge: want 200, got %d (%s)", mw.Code, mw.Body.String())
-	}
+	// The edit must be live immediately — no merge call needed.
 	gw := httptest.NewRecorder()
 	gr := newRequest("GET", "/api/wiki/pages/"+page.ID, nil)
 	gr = withURLParam(gr, "pageId", page.ID)
@@ -91,7 +87,7 @@ func TestProposeThenMergeRevision(t *testing.T) {
 		t.Fatalf("decode: %v", err)
 	}
 	if got.Content != "improved" {
-		t.Fatalf("want merged content 'improved', got %q", got.Content)
+		t.Fatalf("want live content 'improved', got %q", got.Content)
 	}
 }
 
@@ -141,25 +137,17 @@ func TestRejectNonProposedRevisionConflict(t *testing.T) {
 		t.Skip("database not available")
 	}
 	page := createWikiPage(t, "Guarded Doc", "base")
-	// propose
+	// Editing applies live and records a "merged" revision directly.
 	pw := httptest.NewRecorder()
 	pr := newRequest("POST", "/api/wiki/pages/"+page.ID+"/revisions", ProposeWikiRevisionRequest{Title: "Guarded Doc", Content: "x", Summary: "s"})
 	pr = withURLParam(pr, "pageId", page.ID)
 	testHandler.ProposeWikiRevision(pw, pr)
 	if pw.Code != http.StatusCreated {
-		t.Fatalf("propose: %d (%s)", pw.Code, pw.Body.String())
+		t.Fatalf("edit: %d (%s)", pw.Code, pw.Body.String())
 	}
 	var rev WikiRevisionResponse
 	if err := json.Unmarshal(pw.Body.Bytes(), &rev); err != nil {
 		t.Fatalf("decode: %v", err)
-	}
-	// merge it
-	mw := httptest.NewRecorder()
-	mr := newRequest("POST", "/api/wiki/revisions/"+rev.ID+"/merge", nil)
-	mr = withURLParam(mr, "revId", rev.ID)
-	testHandler.MergeWikiRevision(mw, mr)
-	if mw.Code != http.StatusOK {
-		t.Fatalf("merge: %d", mw.Code)
 	}
 	// now reject the already-merged revision → expect 409
 	rw := httptest.NewRecorder()

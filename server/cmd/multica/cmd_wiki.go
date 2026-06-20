@@ -43,7 +43,7 @@ var wikiPageCreateCmd = &cobra.Command{
 
 var wikiPageProposeCmd = &cobra.Command{
 	Use:   "propose <page-id>",
-	Short: "Propose a revision to an existing wiki page (awaits human approval)",
+	Short: "Edit an existing wiki page (applies live; recorded as a revision)",
 	Args:  exactArgs(1),
 	RunE:  runWikiPagePropose,
 }
@@ -257,7 +257,7 @@ func runWikiPagePropose(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("propose wiki revision: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "Revision proposed (ID: %s) — awaits human review before going live.\n", strVal(result, "id"))
+	fmt.Fprintf(os.Stderr, "Wiki page updated (revision ID: %s).\n", strVal(result, "id"))
 
 	output, _ := cmd.Flags().GetString("output")
 	if output == "table" {
