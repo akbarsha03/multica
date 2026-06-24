@@ -71,3 +71,6 @@ data/
 
 # source-run backend binary (built by deploy)
 /server/multica-server
+deploy.sh
+run-backend.sh
+run-frontend.sh
