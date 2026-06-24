@@ -28,6 +28,7 @@ import type {
   CreateRuntimeProfileRequest,
   UpdateRuntimeProfileRequest,
   InboxItem,
+  UnifiedInboxItem,
   IssueSubscriber,
   Comment,
   CommentTriggerPreview,
@@ -1452,6 +1453,9 @@ export class ApiClient {
     return this.fetch("/api/inbox");
   }
 
+  async listAllInbox(): Promise<UnifiedInboxItem[]> {
+    return this.fetch("/api/me/inbox");
+  }
   async markInboxRead(id: string): Promise<InboxItem> {
     return this.fetch(`/api/inbox/${id}/read`, { method: "POST" });
   }

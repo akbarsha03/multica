@@ -310,3 +310,96 @@ func (h *Handler) ArchiveCompletedInbox(w http.ResponseWriter, r *http.Request) 
 
 	writeJSON(w, http.StatusOK, map[string]any{"count": count})
 }
+
+type UnifiedInboxItemResponse struct {
+	InboxItemResponse
+	WorkspaceSlug string `json:"workspace_slug"`
+	WorkspaceName string `json:"workspace_name"`
+}
+
+func (h *Handler) ListAllInbox(w http.ResponseWriter, r *http.Request) {
+	userID, ok := requireUserID(w, r)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	userUUID := parseUUID(userID)
+
+	var isOwner bool
+	if err := h.DB.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM member WHERE user_id = $1 AND role = 'owner')`,
+		userUUID,
+	).Scan(&isOwner); err != nil || !isOwner {
+		writeError(w, http.StatusForbidden, "owner access required")
+		return
+	}
+
+	rows, err := h.DB.Query(ctx, `
+		SELECT
+			i.id, i.workspace_id, i.recipient_type, i.recipient_id,
+			i.type, i.severity, i.issue_id, i.title, i.body,
+			i.read, i.archived, i.created_at, i.actor_type, i.actor_id, i.details,
+			iss.status AS issue_status,
+			w.slug AS workspace_slug,
+			w.name AS workspace_name
+		FROM inbox_item i
+		LEFT JOIN issue iss ON iss.id = i.issue_id
+		JOIN workspace w ON w.id = i.workspace_id
+		WHERE i.recipient_type = 'member'
+		  AND i.recipient_id = $1
+		  AND i.archived = false
+		ORDER BY i.created_at DESC
+	`, userUUID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list unified inbox")
+		return
+	}
+	defer rows.Close()
+
+	resp := []UnifiedInboxItemResponse{}
+	for rows.Next() {
+		var (
+			id, workspaceID, recipientID pgtype.UUID
+			issueID, actorID             pgtype.UUID
+			recipientType, typ, severity, title string
+			body, actorType, issueStatus         pgtype.Text
+			read, archived                        bool
+			createdAt                             pgtype.Timestamptz
+			details                               []byte
+			workspaceSlug, workspaceName          string
+		)
+		if err := rows.Scan(
+			&id, &workspaceID, &recipientType, &recipientID,
+			&typ, &severity, &issueID, &title, &body,
+			&read, &archived, &createdAt, &actorType, &actorID, &details,
+			&issueStatus, &workspaceSlug, &workspaceName,
+		); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to scan inbox row")
+			return
+		}
+		base := InboxItemResponse{
+			ID:            uuidToString(id),
+			WorkspaceID:   uuidToString(workspaceID),
+			RecipientType: recipientType,
+			RecipientID:   uuidToString(recipientID),
+			Type:          typ,
+			Severity:      severity,
+			IssueID:       uuidToPtr(issueID),
+			Title:         title,
+			Body:          textToPtr(body),
+			Read:          read,
+			Archived:      archived,
+			CreatedAt:     timestampToString(createdAt),
+			ActorType:     textToPtr(actorType),
+			ActorID:       uuidToPtr(actorID),
+			Details:       json.RawMessage(details),
+			IssueStatus:   textToPtr(issueStatus),
+		}
+		resp = append(resp, UnifiedInboxItemResponse{
+			InboxItemResponse: base,
+			WorkspaceSlug:     workspaceSlug,
+			WorkspaceName:     workspaceName,
+		})
+	}
+	writeJSON(w, http.StatusOK, resp)
+}

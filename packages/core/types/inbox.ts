@@ -41,3 +41,8 @@ export interface InboxItem {
   created_at: string;
   details: Record<string, string> | null;
 }
+
+export interface UnifiedInboxItem extends InboxItem {
+  workspace_slug: string;
+  workspace_name: string;
+}

@@ -1,6 +1,6 @@
 import { queryOptions, useQuery } from "@tanstack/react-query";
 import { api } from "../api";
-import type { InboxItem } from "../types";
+import type { InboxItem, UnifiedInboxItem } from "../types";
 
 export const inboxKeys = {
   all: (wsId: string) => ["inbox", wsId] as const,
@@ -71,4 +71,16 @@ export function deduplicateInboxItems(items: InboxItem[]): InboxItem[] {
     (a, b) =>
       new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
   );
+}
+
+
+export const unifiedInboxKeys = {
+  list: () => ["inbox", "unified", "list"] as const,
+};
+
+export function allInboxListOptions() {
+  return queryOptions({
+    queryKey: unifiedInboxKeys.list(),
+    queryFn: () => api.listAllInbox(),
+  });
 }

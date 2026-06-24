@@ -72,6 +72,7 @@ import { workspaceListOptions, myInvitationListOptions, workspaceKeys } from "@m
 import { resolvePublicFileUrl } from "@multica/core/workspace/avatar-url";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { inboxKeys, deduplicateInboxItems } from "@multica/core/inbox/queries";
+import { setLastIssuePath } from "@multica/core/inbox/last-issue-path";
 import { api, ApiError } from "@multica/core/api";
 import { useModalStore } from "@multica/core/modals";
 import { useConfigStore } from "@multica/core/config";
@@ -500,6 +501,26 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [pathname, p, push]);
+
+  // Track last visited issue path for Cmd/Ctrl+J cycling
+  useEffect(() => {
+    const issueMatch = pathname.match(/^\/[^\/]+\/issues\/[^\/]+$/);
+    if (issueMatch) setLastIssuePath(pathname);
+  }, [pathname]);
+
+  // Cmd/Ctrl+J: jump to unified inbox from any workspace page
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.key !== "j" && e.key !== "J") || !(e.metaKey || e.ctrlKey)) return;
+      if (e.altKey || e.shiftKey) return;
+      e.preventDefault();
+      push("/inbox");
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [push]);
+
+
 
   return (
       <Sidebar variant="inset">
