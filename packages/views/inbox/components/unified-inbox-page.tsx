@@ -81,7 +81,7 @@ function groupItems(items: UnifiedInboxItem[]): InboxGroup[] {
   return Array.from(map.entries()).map(([key, groupItems]) => ({
     key,
     items: groupItems,
-    latest: groupItems[0], // API returns latest-first
+    latest: groupItems[0]!, // API returns latest-first
     hasUnread: groupItems.some((i) => !i.read),
   }));
 }
