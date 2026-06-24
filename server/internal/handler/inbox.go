@@ -431,5 +431,5 @@ func (h *Handler) MarkUnifiedInboxRead(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to mark read")
 		return
 	}
-	writeJSON(w, http.StatusOK, inboxRowToResponse(item))
+	writeJSON(w, http.StatusOK, inboxToResponse(item))
 }
