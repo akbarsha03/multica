@@ -84,3 +84,4 @@ export function allInboxListOptions() {
     queryFn: () => api.listAllInbox(),
   });
 }
+

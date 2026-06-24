@@ -403,3 +403,33 @@ func (h *Handler) ListAllInbox(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
+
+func (h *Handler) MarkUnifiedInboxRead(w http.ResponseWriter, r *http.Request) {
+	userID, ok := requireUserID(w, r)
+	if !ok {
+		return
+	}
+	itemID := chi.URLParam(r, "id")
+	itemUUID, ok := parseUUIDOrBadRequest(w, itemID, "inbox item id")
+	if !ok {
+		return
+	}
+	userUUID := parseUUID(userID)
+
+	// Verify the item belongs to this user before marking read.
+	var exists bool
+	if err := h.DB.QueryRow(r.Context(),
+		`SELECT EXISTS(SELECT 1 FROM inbox_item WHERE id = $1 AND recipient_id = $2)`,
+		itemUUID, userUUID,
+	).Scan(&exists); err != nil || !exists {
+		writeError(w, http.StatusNotFound, "inbox item not found")
+		return
+	}
+
+	item, err := h.Queries.MarkInboxRead(r.Context(), itemUUID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to mark read")
+		return
+	}
+	writeJSON(w, http.StatusOK, inboxRowToResponse(item))
+}

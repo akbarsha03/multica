@@ -1453,6 +1453,10 @@ export class ApiClient {
     return this.fetch("/api/inbox");
   }
 
+  async markUnifiedInboxRead(id: string): Promise<UnifiedInboxItem> {
+    return this.fetch(`/api/me/inbox/${id}/read`, { method: "POST" });
+  }
+
   async listAllInbox(): Promise<UnifiedInboxItem[]> {
     return this.fetch("/api/me/inbox");
   }
