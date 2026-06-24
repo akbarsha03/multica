@@ -520,6 +520,33 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [push]);
 
+  // 3-finger swipe-down (mobile): jump to unified inbox
+  useEffect(() => {
+    let startY = 0;
+    let active = false;
+    const onStart = (e: TouchEvent) => {
+      if (e.touches.length === 3) {
+        startY = (e.touches[0]!.clientY + e.touches[1]!.clientY + e.touches[2]!.clientY) / 3;
+        active = true;
+      } else {
+        active = false;
+      }
+    };
+    const onEnd = (e: TouchEvent) => {
+      if (!active) return;
+      active = false;
+      const t = e.changedTouches[0];
+      if (!t) return;
+      if (t.clientY - startY > 60) push("/inbox");
+    };
+    document.addEventListener("touchstart", onStart, { passive: true });
+    document.addEventListener("touchend", onEnd, { passive: true });
+    return () => {
+      document.removeEventListener("touchstart", onStart);
+      document.removeEventListener("touchend", onEnd);
+    };
+  }, [push]);
+
 
 
   return (

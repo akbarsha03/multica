@@ -318,6 +318,34 @@ export function UnifiedInboxPage() {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [router]);
 
+  // 3-finger swipe-down (mobile): cycle back to last issue
+  useEffect(() => {
+    let startY = 0;
+    let active = false;
+    const onStart = (e: TouchEvent) => {
+      if (e.touches.length === 3) {
+        startY = (e.touches[0]!.clientY + e.touches[1]!.clientY + e.touches[2]!.clientY) / 3;
+        active = true;
+      } else {
+        active = false;
+      }
+    };
+    const onEnd = (e: TouchEvent) => {
+      if (!active) return;
+      active = false;
+      const t = e.changedTouches[0];
+      if (!t) return;
+      const last = getLastIssuePath();
+      if (t.clientY - startY > 60 && last) router.push(last);
+    };
+    document.addEventListener("touchstart", onStart, { passive: true });
+    document.addEventListener("touchend", onEnd, { passive: true });
+    return () => {
+      document.removeEventListener("touchstart", onStart);
+      document.removeEventListener("touchend", onEnd);
+    };
+  }, [router]);
+
   if (isAuthLoading || !user) return null;
 
   const groups = sortGroups(groupItems(items), pinned);
