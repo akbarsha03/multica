@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@multica/core/auth";
@@ -17,10 +17,49 @@ import { getInboxDisplayTitle } from "./inbox-display";
 
 type InboxGroup = {
   key: string;
-  items: UnifiedInboxItem[];  // sorted latest-first by the API
+  items: UnifiedInboxItem[];
   latest: UnifiedInboxItem;
   hasUnread: boolean;
 };
+
+// ─── pinned state (localStorage) ─────────────────────────────────────────────
+
+const PINNED_KEY = "multica:inbox:pinned";
+
+function loadPinned(): Set<string> {
+  try {
+    const raw = localStorage.getItem(PINNED_KEY);
+    return raw ? new Set(JSON.parse(raw) as string[]) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+function savePinned(pinned: Set<string>): void {
+  try {
+    localStorage.setItem(PINNED_KEY, JSON.stringify([...pinned]));
+  } catch {
+    // storage unavailable — silently ignore
+  }
+}
+
+function usePinned() {
+  const [pinned, setPinned] = useState<Set<string>>(() =>
+    typeof window !== "undefined" ? loadPinned() : new Set(),
+  );
+
+  const togglePin = useCallback((key: string) => {
+    setPinned((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      savePinned(next);
+      return next;
+    });
+  }, []);
+
+  return { pinned, togglePin };
+}
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -68,22 +107,53 @@ function inboxSubtitle(item: UnifiedInboxItem): string {
   }
 }
 
-/** Group items by issue_id. Items without issue_id each form their own group. */
 function groupItems(items: UnifiedInboxItem[]): InboxGroup[] {
   const map = new Map<string, UnifiedInboxItem[]>();
-
   for (const item of items) {
     const key = item.issue_id ?? `solo:${item.id}`;
     if (!map.has(key)) map.set(key, []);
     map.get(key)!.push(item);
   }
-
   return Array.from(map.entries()).map(([key, groupItems]) => ({
     key,
     items: groupItems,
-    latest: groupItems[0]!, // API returns latest-first
+    latest: groupItems[0]!,
     hasUnread: groupItems.some((i) => !i.read),
   }));
+}
+
+function sortGroups(groups: InboxGroup[], pinned: Set<string>): InboxGroup[] {
+  return [...groups].sort((a, b) => {
+    const aPin = pinned.has(a.key) ? 0 : 1;
+    const bPin = pinned.has(b.key) ? 0 : 1;
+    if (aPin !== bPin) return aPin - bPin;
+    // within same pin-tier, latest-first (groups are already in API order, so
+    // preserve relative order with index — stableSort via localeCompare fallback)
+    return new Date(b.latest.created_at).getTime() - new Date(a.latest.created_at).getTime();
+  });
+}
+
+// ─── icons ────────────────────────────────────────────────────────────────────
+
+function CheckIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M20 6 9 17l-5-5" />
+    </svg>
+  );
+}
+
+function PinIcon({ filled }: { filled?: boolean }) {
+  return filled ? (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 2L8 8H4l4 5v5l4-2 4 2v-5l4-5h-4L12 2z" />
+    </svg>
+  ) : (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="12" y1="17" x2="12" y2="22" />
+      <path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z" />
+    </svg>
+  );
 }
 
 // ─── sub-components ───────────────────────────────────────────────────────────
@@ -98,12 +168,16 @@ function WorkspaceBadge({ name }: { name: string }) {
 
 function InboxGroupItem({
   group,
+  isPinned,
   onNavigate,
   onMarkRead,
+  onTogglePin,
 }: {
   group: InboxGroup;
+  isPinned: boolean;
   onNavigate: () => void;
   onMarkRead: () => void;
+  onTogglePin: () => void;
 }) {
   const timeAgo = useTimeAgo();
   const { latest, hasUnread } = group;
@@ -112,7 +186,12 @@ function InboxGroupItem({
   const count = group.items.length;
 
   return (
-    <div className="group flex w-full items-start gap-3 px-6 py-3 border-b border-border/50 last:border-b-0 hover:bg-accent/50 transition-colors">
+    <div className={`group flex w-full items-start gap-3 px-6 py-3 border-b border-border/50 last:border-b-0 hover:bg-accent/50 transition-colors ${isPinned ? "bg-accent/20" : ""}`}>
+      {/* pin indicator stripe */}
+      {isPinned && (
+        <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-brand rounded-r" />
+      )}
+
       {/* status icon */}
       <div className="mt-0.5 shrink-0">
         {latest.issue_status ? (
@@ -152,19 +231,27 @@ function InboxGroupItem({
         </div>
       </button>
 
-      {/* mark-read button — visible on hover, only when unread */}
-      {hasUnread && (
+      {/* action buttons — visible on hover */}
+      <div className="mt-0.5 shrink-0 hidden group-hover:flex items-center gap-1">
+        {hasUnread && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onMarkRead(); }}
+            title="Mark as read"
+            className="flex items-center justify-center size-6 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <CheckIcon />
+          </button>
+        )}
         <button
           type="button"
-          onClick={(e) => { e.stopPropagation(); onMarkRead(); }}
-          title="Mark as read"
-          className="mt-0.5 shrink-0 hidden group-hover:flex items-center justify-center size-6 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+          onClick={(e) => { e.stopPropagation(); onTogglePin(); }}
+          title={isPinned ? "Unpin" : "Pin"}
+          className={`flex items-center justify-center size-6 rounded hover:bg-muted transition-colors ${isPinned ? "text-brand" : "text-muted-foreground hover:text-foreground"}`}
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M20 6 9 17l-5-5" />
-          </svg>
+          <PinIcon filled={isPinned} />
         </button>
-      )}
+      </div>
     </div>
   );
 }
@@ -176,6 +263,7 @@ export function UnifiedInboxPage() {
   const qc = useQueryClient();
   const user = useAuthStore((s) => s.user);
   const isAuthLoading = useAuthStore((s) => s.isLoading);
+  const { pinned, togglePin } = usePinned();
 
   const { data: items = [], isLoading, isError, error } = useQuery({
     ...allInboxListOptions(),
@@ -192,20 +280,17 @@ export function UnifiedInboxPage() {
   const markGroupRead = useCallback(
     (group: InboxGroup) => {
       const unreadIds = group.items.filter((i) => !i.read).map((i) => i.id);
-      // Optimistic update: mark all items in the group as read in cache
       qc.setQueryData<UnifiedInboxItem[]>(
         unifiedInboxKeys.list(),
         (prev = []) => prev.map((i) => unreadIds.includes(i.id) ? { ...i, read: true } : i),
       );
-      // Fire requests for each unread item (they're cheap individual calls)
       for (const id of unreadIds) markReadMutation.mutate(id);
     },
     [qc, markReadMutation],
   );
 
   const markAllRead = useCallback(() => {
-    const groups = groupItems(items);
-    for (const group of groups) {
+    for (const group of groupItems(items)) {
       if (group.hasUnread) markGroupRead(group);
     }
   }, [items, markGroupRead]);
@@ -222,7 +307,6 @@ export function UnifiedInboxPage() {
     }
   }, [isError, error, router]);
 
-  // Cmd/Ctrl+J → back to last visited issue
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.key !== "j" && e.key !== "J") || !(e.metaKey || e.ctrlKey)) return;
@@ -236,7 +320,7 @@ export function UnifiedInboxPage() {
 
   if (isAuthLoading || !user) return null;
 
-  const groups = groupItems(items);
+  const groups = sortGroups(groupItems(items), pinned);
   const unreadCount = groups.filter((g) => g.hasUnread).length;
 
   return (
@@ -268,17 +352,19 @@ export function UnifiedInboxPage() {
             All caught up
           </div>
         ) : (
-          <div>
+          <div className="relative">
             {groups.map((group) => (
               <InboxGroupItem
                 key={group.key}
                 group={group}
+                isPinned={pinned.has(group.key)}
                 onNavigate={() => {
                   if (group.latest.issue_id) {
                     router.push(`/${group.latest.workspace_slug}/issues/${group.latest.issue_id}`);
                   }
                 }}
                 onMarkRead={() => markGroupRead(group)}
+                onTogglePin={() => togglePin(group.key)}
               />
             ))}
           </div>
