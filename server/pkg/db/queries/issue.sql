@@ -325,3 +325,12 @@ UPDATE issue
 SET first_executed_at = now()
 WHERE id = $1 AND first_executed_at IS NULL
 RETURNING id, workspace_id, creator_type, creator_id, first_executed_at;
+
+-- name: ListAllWorkspaceIssues :many
+SELECT * FROM issue
+WHERE workspace_id = $1
+ORDER BY position ASC, created_at ASC;
+
+-- name: SetIssueParent :exec
+UPDATE issue SET parent_issue_id = $2, updated_at = now()
+WHERE id = $1;
