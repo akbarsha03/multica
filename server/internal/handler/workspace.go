@@ -301,7 +301,7 @@ func (h *Handler) CopyWorkspace(w http.ResponseWriter, r *http.Request) {
 
 	tx, err := h.TxStarter.Begin(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create workspace")
+		writeError(w, http.StatusInternalServerError, "failed to begin transaction: "+err.Error())
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -433,15 +433,17 @@ func (h *Handler) CopyWorkspace(w http.ResponseWriter, r *http.Request) {
 		for _, row := range autopilots {
 			a := row.Autopilot
 			newAssigneeID := pgtype.UUID{}
-			newAssigneeType := a.AssigneeType
+			newAssigneeType := ""
 			switch a.AssigneeType {
 			case "agent":
 				if mapped, ok := agentIDMap[a.AssigneeID]; ok {
 					newAssigneeID = mapped
+					newAssigneeType = a.AssigneeType
 				}
 			case "squad":
 				if mapped, ok := squadIDMap[a.AssigneeID]; ok {
 					newAssigneeID = mapped
+					newAssigneeType = a.AssigneeType
 				}
 			}
 
@@ -473,7 +475,7 @@ func (h *Handler) CopyWorkspace(w http.ResponseWriter, r *http.Request) {
 				if t.Kind == "webhook" {
 					tok, err := generateWebhookToken()
 					if err != nil {
-						writeError(w, http.StatusInternalServerError, "failed to generate webhook token")
+						writeError(w, http.StatusInternalServerError, "failed to generate webhook token: "+err.Error())
 						return
 					}
 					webhookToken = pgtype.Text{String: tok, Valid: true}
@@ -700,7 +702,7 @@ func (h *Handler) CopyWorkspace(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := tx.Commit(r.Context()); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to commit transaction")
+		writeError(w, http.StatusInternalServerError, "failed to commit transaction: "+err.Error())
 		return
 	}
 
