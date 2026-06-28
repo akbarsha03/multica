@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -238,6 +239,473 @@ func (h *Handler) CreateWorkspace(w http.ResponseWriter, r *http.Request) {
 
 	slog.Info("workspace created", append(logger.RequestAttrs(r), "workspace_id", wsID, "name", ws.Name, "slug", ws.Slug)...)
 	writeJSON(w, http.StatusCreated, workspaceToResponse(ws))
+}
+
+
+type CopySelections struct {
+	Agents     bool `json:"agents"`
+	Squads     bool `json:"squads"`
+	Autopilots bool `json:"autopilots"`
+	Wiki       bool `json:"wiki"`
+	Issues     bool `json:"issues"`
+}
+
+type CopyWorkspaceRequest struct {
+	Name              string         `json:"name"`
+	Slug              string         `json:"slug"`
+	SourceWorkspaceID string         `json:"source_workspace_id"`
+	Copy              CopySelections `json:"copy"`
+}
+
+func (h *Handler) CopyWorkspace(w http.ResponseWriter, r *http.Request) {
+	userID, ok := requireUserID(w, r)
+	if !ok {
+		return
+	}
+
+	var req CopyWorkspaceRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	req.Name = strings.TrimSpace(req.Name)
+	req.Slug = strings.ToLower(strings.TrimSpace(req.Slug))
+	if req.Name == "" || req.Slug == "" {
+		writeError(w, http.StatusBadRequest, "name and slug are required")
+		return
+	}
+	if !workspaceSlugPattern.MatchString(req.Slug) {
+		writeError(w, http.StatusBadRequest, "slug must contain only lowercase letters, numbers, and hyphens")
+		return
+	}
+	if isReservedSlug(req.Slug) {
+		writeError(w, http.StatusBadRequest, "slug is reserved")
+		return
+	}
+
+	srcID, ok := parseUUIDOrBadRequest(w, req.SourceWorkspaceID, "source_workspace_id")
+	if !ok {
+		return
+	}
+
+	userUUID := parseUUID(userID)
+
+	// Verify caller is member of source workspace
+	if _, err := h.Queries.GetMemberByUserAndWorkspace(r.Context(), db.GetMemberByUserAndWorkspaceParams{
+		UserID:      userUUID,
+		WorkspaceID: srcID,
+	}); err != nil {
+		writeError(w, http.StatusForbidden, "not a member of source workspace")
+		return
+	}
+
+	tx, err := h.TxStarter.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create workspace")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	qtx := h.Queries.WithTx(tx)
+
+	// Create new workspace
+	issuePrefix := generateIssuePrefix(req.Name)
+	newWs, err := qtx.CreateWorkspace(r.Context(), db.CreateWorkspaceParams{
+		Name:        req.Name,
+		Slug:        req.Slug,
+		IssuePrefix: issuePrefix,
+	})
+	if err != nil {
+		if isUniqueViolation(err) {
+			writeError(w, http.StatusConflict, "workspace slug already exists")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to create workspace: "+err.Error())
+		return
+	}
+
+	if _, err := qtx.CreateMember(r.Context(), db.CreateMemberParams{
+		WorkspaceID: newWs.ID,
+		UserID:      userUUID,
+		Role:        "owner",
+	}); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to add owner: "+err.Error())
+		return
+	}
+
+	// --- Copy agents ---
+	agentIDMap := map[pgtype.UUID]pgtype.UUID{}
+	if req.Copy.Agents {
+		agents, err := qtx.ListAllAgents(r.Context(), srcID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to list agents: "+err.Error())
+			return
+		}
+		for _, a := range agents {
+			newAgent, err := qtx.CreateAgent(r.Context(), db.CreateAgentParams{
+				WorkspaceID:        newWs.ID,
+				Name:               a.Name,
+				Description:        a.Description,
+				AvatarUrl:          a.AvatarUrl,
+				RuntimeMode:        a.RuntimeMode,
+				RuntimeConfig:      a.RuntimeConfig,
+				RuntimeID:          pgtype.UUID{}, // drop runtime link
+				Visibility:         a.Visibility,
+				MaxConcurrentTasks: a.MaxConcurrentTasks,
+				OwnerID:            userUUID,
+				Instructions:       a.Instructions,
+				CustomEnv:          a.CustomEnv,
+				CustomArgs:         a.CustomArgs,
+				McpConfig:          a.McpConfig,
+				Model:              a.Model,
+				ThinkingLevel:      a.ThinkingLevel,
+			})
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to copy agent: "+err.Error())
+				return
+			}
+			agentIDMap[a.ID] = newAgent.ID
+		}
+	}
+
+	// --- Copy squads ---
+	squadIDMap := map[pgtype.UUID]pgtype.UUID{}
+	if req.Copy.Squads {
+		squads, err := qtx.ListAllSquads(r.Context(), srcID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to list squads: "+err.Error())
+			return
+		}
+		for _, s := range squads {
+			newLeaderID := pgtype.UUID{}
+			if mapped, ok := agentIDMap[s.LeaderID]; ok {
+				newLeaderID = mapped
+			}
+			newSquad, err := qtx.CreateSquad(r.Context(), db.CreateSquadParams{
+				WorkspaceID: newWs.ID,
+				Name:        s.Name,
+				Description: s.Description,
+				LeaderID:    newLeaderID,
+				CreatorID:   userUUID,
+				AvatarUrl:   s.AvatarUrl,
+			})
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to copy squad: "+err.Error())
+				return
+			}
+			squadIDMap[s.ID] = newSquad.ID
+
+			members, err := qtx.ListSquadMembers(r.Context(), s.ID)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to list squad members: "+err.Error())
+				return
+			}
+			for _, m := range members {
+				if m.MemberType == "member" {
+					continue // drop human members
+				}
+				newMemberID, ok := agentIDMap[m.MemberID]
+				if !ok {
+					continue
+				}
+				if _, err := qtx.AddSquadMember(r.Context(), db.AddSquadMemberParams{
+					SquadID:    newSquad.ID,
+					MemberType: m.MemberType,
+					MemberID:   newMemberID,
+					Role:       m.Role,
+				}); err != nil {
+					writeError(w, http.StatusInternalServerError, "failed to copy squad member: "+err.Error())
+					return
+				}
+			}
+		}
+	}
+
+	// --- Copy autopilots ---
+	if req.Copy.Autopilots {
+		autopilots, err := qtx.ListAutopilots(r.Context(), db.ListAutopilotsParams{
+			WorkspaceID: srcID,
+			Status:      pgtype.Text{},
+		})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to list autopilots: "+err.Error())
+			return
+		}
+		for _, row := range autopilots {
+			a := row.Autopilot
+			newAssigneeID := pgtype.UUID{}
+			newAssigneeType := a.AssigneeType
+			switch a.AssigneeType {
+			case "agent":
+				if mapped, ok := agentIDMap[a.AssigneeID]; ok {
+					newAssigneeID = mapped
+				}
+			case "squad":
+				if mapped, ok := squadIDMap[a.AssigneeID]; ok {
+					newAssigneeID = mapped
+				}
+			}
+
+			newAP, err := qtx.CreateAutopilot(r.Context(), db.CreateAutopilotParams{
+				WorkspaceID:        newWs.ID,
+				Title:              a.Title,
+				Description:        a.Description,
+				AssigneeType:       newAssigneeType,
+				AssigneeID:         newAssigneeID,
+				Status:             a.Status,
+				ExecutionMode:      a.ExecutionMode,
+				IssueTitleTemplate: a.IssueTitleTemplate,
+				ProjectID:          pgtype.UUID{},
+				CreatedByType:      "member",
+				CreatedByID:        userUUID,
+			})
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to copy autopilot: "+err.Error())
+				return
+			}
+
+			triggers, err := qtx.ListAutopilotTriggers(r.Context(), a.ID)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to list autopilot triggers: "+err.Error())
+				return
+			}
+			for _, t := range triggers {
+				webhookToken := pgtype.Text{}
+				if t.Kind == "webhook" {
+					tok, err := generateWebhookToken()
+					if err != nil {
+						writeError(w, http.StatusInternalServerError, "failed to generate webhook token")
+						return
+					}
+					webhookToken = pgtype.Text{String: tok, Valid: true}
+				}
+				if _, err := qtx.CreateAutopilotTrigger(r.Context(), db.CreateAutopilotTriggerParams{
+					AutopilotID:    newAP.ID,
+					Kind:           t.Kind,
+					Enabled:        t.Enabled,
+					CronExpression: t.CronExpression,
+					Timezone:       t.Timezone,
+					NextRunAt:      t.NextRunAt,
+					WebhookToken:   webhookToken,
+					Label:          t.Label,
+					Provider:       pgtype.Text{String: t.Provider, Valid: t.Provider != ""},
+					EventFilters:   t.EventFilters,
+				}); err != nil {
+					writeError(w, http.StatusInternalServerError, "failed to copy autopilot trigger: "+err.Error())
+					return
+				}
+			}
+		}
+	}
+
+	// --- Copy wiki ---
+	if req.Copy.Wiki {
+		pages, err := qtx.ListWikiPages(r.Context(), srcID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to list wiki pages: "+err.Error())
+			return
+		}
+
+		pageIDMap := map[pgtype.UUID]pgtype.UUID{}
+		type pageInfo struct {
+			src   db.WikiPage
+			newID pgtype.UUID
+		}
+		var pageInfos []pageInfo
+
+		// First pass: create all pages with parent_id=NULL
+		for _, p := range pages {
+			newPage, err := qtx.CreateWikiPage(r.Context(), db.CreateWikiPageParams{
+				WorkspaceID:   newWs.ID,
+				ParentID:      pgtype.UUID{},
+				Title:         p.Title,
+				Slug:          p.Slug,
+				Content:       p.Content,
+				Position:      p.Position,
+				CreatedByType: "member",
+				CreatedByID:   userUUID,
+			})
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to copy wiki page: "+err.Error())
+				return
+			}
+			pageIDMap[p.ID] = newPage.ID
+			pageInfos = append(pageInfos, pageInfo{src: p, newID: newPage.ID})
+		}
+
+		// Copy revisions (oldest first) and update current_revision_id
+		for _, pi := range pageInfos {
+			revs, err := qtx.ListWikiRevisionsForPage(r.Context(), db.ListWikiRevisionsForPageParams{
+				PageID:      pi.src.ID,
+				WorkspaceID: srcID,
+			})
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to list wiki revisions: "+err.Error())
+				return
+			}
+			// Query returns DESC; reverse to get oldest-first for correct base_revision_id chaining
+			slices.Reverse(revs)
+
+			revIDMap := map[pgtype.UUID]pgtype.UUID{}
+			for _, rev := range revs {
+				newBaseRevID := pgtype.UUID{}
+				if rev.BaseRevisionID.Valid {
+					if mapped, ok := revIDMap[rev.BaseRevisionID]; ok {
+						newBaseRevID = mapped
+					}
+				}
+				newRev, err := qtx.CreateWikiRevision(r.Context(), db.CreateWikiRevisionParams{
+					PageID:         pi.newID,
+					WorkspaceID:    newWs.ID,
+					Title:          rev.Title,
+					Content:        rev.Content,
+					BaseRevisionID: newBaseRevID,
+					AuthorType:     "member",
+					AuthorID:       userUUID,
+					Status:         rev.Status,
+					Summary:        rev.Summary,
+				})
+				if err != nil {
+					writeError(w, http.StatusInternalServerError, "failed to copy wiki revision: "+err.Error())
+					return
+				}
+				revIDMap[rev.ID] = newRev.ID
+			}
+
+			if pi.src.CurrentRevisionID.Valid {
+				if newRevID, ok := revIDMap[pi.src.CurrentRevisionID]; ok {
+					if _, err := qtx.UpdateWikiPageContent(r.Context(), db.UpdateWikiPageContentParams{
+						ID:                pi.newID,
+						WorkspaceID:       newWs.ID,
+						Title:             pi.src.Title,
+						Content:           pi.src.Content,
+						CurrentRevisionID: newRevID,
+						UpdatedByType:     "member",
+						UpdatedByID:       userUUID,
+					}); err != nil {
+						writeError(w, http.StatusInternalServerError, "failed to update wiki page revision: "+err.Error())
+						return
+					}
+				}
+			}
+		}
+
+		// Second pass: wire up parent_id for child pages
+		for _, pi := range pageInfos {
+			if !pi.src.ParentID.Valid {
+				continue
+			}
+			newParentID, ok := pageIDMap[pi.src.ParentID]
+			if !ok {
+				continue
+			}
+			if _, err := qtx.MoveWikiPage(r.Context(), db.MoveWikiPageParams{
+				ID:          pi.newID,
+				WorkspaceID: newWs.ID,
+				ParentID:    newParentID,
+				Position:    pi.src.Position,
+			}); err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to update wiki page parent: "+err.Error())
+				return
+			}
+		}
+	}
+
+	// --- Copy issues ---
+	if req.Copy.Issues {
+		issues, err := qtx.ListAllWorkspaceIssues(r.Context(), srcID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to list issues: "+err.Error())
+			return
+		}
+
+		issueIDMap := map[pgtype.UUID]pgtype.UUID{}
+		type copiedIssue struct {
+			newID     pgtype.UUID
+			srcParent pgtype.UUID
+		}
+		var copiedIssues []copiedIssue
+
+		for _, issue := range issues {
+			issueNumber, err := qtx.IncrementIssueCounter(r.Context(), newWs.ID)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to increment issue counter: "+err.Error())
+				return
+			}
+
+			assigneeType := pgtype.Text{}
+			assigneeID := pgtype.UUID{}
+			if issue.AssigneeType.Valid {
+				switch issue.AssigneeType.String {
+				case "agent":
+					if mapped, ok := agentIDMap[issue.AssigneeID]; ok {
+						assigneeType = issue.AssigneeType
+						assigneeID = mapped
+					}
+				case "squad":
+					if mapped, ok := squadIDMap[issue.AssigneeID]; ok {
+						assigneeType = issue.AssigneeType
+						assigneeID = mapped
+					}
+				// "member" -> drop
+				}
+			}
+
+			newIssue, err := qtx.CreateIssue(r.Context(), db.CreateIssueParams{
+				WorkspaceID:   newWs.ID,
+				Title:         issue.Title,
+				Description:   issue.Description,
+				Status:        issue.Status,
+				Priority:      issue.Priority,
+				AssigneeType:  assigneeType,
+				AssigneeID:    assigneeID,
+				CreatorType:   "member",
+				CreatorID:     userUUID,
+				ParentIssueID: pgtype.UUID{},
+				ProjectID:     pgtype.UUID{},
+				Position:      issue.Position,
+				StartDate:     issue.StartDate,
+				DueDate:       issue.DueDate,
+				Number:        int32(issueNumber),
+				Stage:         issue.Stage,
+			})
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to copy issue: "+err.Error())
+				return
+			}
+
+			issueIDMap[issue.ID] = newIssue.ID
+			copiedIssues = append(copiedIssues, copiedIssue{
+				newID:     newIssue.ID,
+				srcParent: issue.ParentIssueID,
+			})
+		}
+
+		// Second pass: wire up parent_issue_id
+		for _, ci := range copiedIssues {
+			if !ci.srcParent.Valid {
+				continue
+			}
+			newParentID, ok := issueIDMap[ci.srcParent]
+			if !ok {
+				continue
+			}
+			if err := qtx.SetIssueParent(r.Context(), db.SetIssueParentParams{
+				ID:            ci.newID,
+				ParentIssueID: newParentID,
+			}); err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to update issue parent: "+err.Error())
+				return
+			}
+		}
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to commit transaction")
+		return
+	}
+
+	slog.Info("workspace copied", append(logger.RequestAttrs(r), "source_workspace_id", uuidToString(srcID), "new_workspace_id", uuidToString(newWs.ID))...)
+	writeJSON(w, http.StatusCreated, workspaceToResponse(newWs))
 }
 
 type UpdateWorkspaceRequest struct {
