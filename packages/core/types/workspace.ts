@@ -89,3 +89,17 @@ export interface Invitation {
   inviter_email?: string;
   workspace_name?: string;
 }
+export interface CopySelections {
+  agents: boolean;
+  squads: boolean;
+  autopilots: boolean;
+  wiki: boolean;
+  issues: boolean;
+}
+
+export interface CopyWorkspaceRequest {
+  name: string;
+  slug: string;
+  source_workspace_id: string;
+  copy: CopySelections;
+}

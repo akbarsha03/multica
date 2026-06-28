@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import type { Workspace } from "../types";
+import type { Workspace, CopyWorkspaceRequest } from "../types";
 import { api } from "../api";
 import { workspaceKeys } from "./queries";
 
@@ -24,6 +24,19 @@ export function useCreateWorkspace() {
     },
   });
 }
+export function useCopyWorkspace() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: CopyWorkspaceRequest) => api.copyWorkspace(data),
+    onSuccess: (newWs) => {
+      qc.setQueryData(workspaceKeys.list(), (old: Workspace[] = []) => [...old, newWs]);
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: workspaceKeys.list() });
+    },
+  });
+}
+
 
 export function useLeaveWorkspace() {
   const qc = useQueryClient();

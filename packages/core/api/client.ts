@@ -132,6 +132,7 @@ import type {
   CreateBillingPortalSessionResponse,
   WikiPage,
   WikiRevision,
+  CopyWorkspaceRequest,
 } from "../types";
 import type { OnboardingCompletionPath } from "../onboarding/types";
 import type {
@@ -1570,6 +1571,13 @@ export class ApiClient {
   async updateWorkspace(id: string, data: { name?: string; description?: string; context?: string; settings?: Record<string, unknown>; repos?: WorkspaceRepo[]; issue_prefix?: string; avatar_url?: string }): Promise<Workspace> {
     return this.fetch(`/api/workspaces/${id}`, {
       method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async copyWorkspace(data: CopyWorkspaceRequest): Promise<Workspace> {
+    return this.fetch("/api/workspaces/copy", {
+      method: "POST",
       body: JSON.stringify(data),
     });
   }
