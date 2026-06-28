@@ -2,12 +2,22 @@
 
 import { useRef, useState } from "react";
 import { toast } from "sonner";
+import { useQuery } from "@tanstack/react-query";
 import { Input } from "@multica/ui/components/ui/input";
 import { Label } from "@multica/ui/components/ui/label";
 import { Button } from "@multica/ui/components/ui/button";
 import { Card, CardContent } from "@multica/ui/components/ui/card";
-import { useCreateWorkspace } from "@multica/core/workspace/mutations";
-import type { Workspace } from "@multica/core/types";
+import { Checkbox } from "@multica/ui/components/ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@multica/ui/components/ui/select";
+import { useCreateWorkspace, useCopyWorkspace } from "@multica/core/workspace/mutations";
+import type { Workspace, CopySelections } from "@multica/core/types";
+import { workspaceListOptions } from "@multica/core/workspace/queries";
 import { isImeComposing } from "@multica/core/utils";
 import {
   WORKSPACE_SLUG_REGEX,
@@ -23,14 +33,38 @@ export interface CreateWorkspaceFormProps {
   onSuccess: (workspace: Workspace) => void | Promise<void>;
 }
 
+const ALL_COPY_SELECTIONS: CopySelections = {
+  agents: true,
+  squads: true,
+  autopilots: true,
+  wiki: true,
+  issues: true,
+};
+
+const COPY_SELECTION_KEYS: (keyof CopySelections)[] = [
+  "agents",
+  "squads",
+  "autopilots",
+  "wiki",
+  "issues",
+];
+
 export function CreateWorkspaceForm({ onSuccess }: CreateWorkspaceFormProps) {
   const { t } = useT("workspace");
   const createWorkspace = useCreateWorkspace();
+  const copyWorkspace = useCopyWorkspace();
   const urlHost = workspaceUrlHost(useConfigStore((s) => s.daemonAppUrl));
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [slugServerError, setSlugServerError] = useState<string | null>(null);
   const slugTouched = useRef(false);
+
+  // Copy mode state
+  const [copyMode, setCopyMode] = useState(false);
+  const [sourceWorkspaceId, setSourceWorkspaceId] = useState<string>("");
+  const [copySelections, setCopySelections] = useState<CopySelections>(ALL_COPY_SELECTIONS);
+
+  const { data: workspaces = [] } = useQuery(workspaceListOptions());
 
   const slugValidationError =
     slug.length > 0 && !WORKSPACE_SLUG_REGEX.test(slug)
@@ -41,8 +75,13 @@ export function CreateWorkspaceForm({ onSuccess }: CreateWorkspaceFormProps) {
       ? t(($) => $.create_form.errors.slug_reserved)
       : null;
   const slugError = slugValidationError ?? slugReservedError ?? slugServerError;
+
+  const copyModeReady = !copyMode || (copyMode && sourceWorkspaceId !== "");
   const canSubmit =
-    name.trim().length > 0 && slug.trim().length > 0 && !slugError;
+    name.trim().length > 0 &&
+    slug.trim().length > 0 &&
+    !slugError &&
+    copyModeReady;
 
   const handleNameChange = (value: string) => {
     setName(value);
@@ -58,27 +97,45 @@ export function CreateWorkspaceForm({ onSuccess }: CreateWorkspaceFormProps) {
     setSlugServerError(null);
   };
 
-  const handleCreate = () => {
-    if (!canSubmit) return;
-    createWorkspace.mutate(
-      { name: name.trim(), slug: slug.trim() },
-      {
-        onSuccess,
-        onError: (error) => {
-          if (isWorkspaceSlugConflict(error)) {
-            setSlugServerError(t(($) => $.create_form.errors.slug_taken));
-            toast.error(t(($) => $.create_form.errors.slug_conflict_toast));
-            return;
-          }
-          toast.error(
-            error instanceof Error && error.message
-              ? error.message
-              : t(($) => $.create_form.errors.create_failed),
-          );
-        },
-      },
+  const toggleSelection = (key: keyof CopySelections) => {
+    setCopySelections((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const handleError = (error: unknown) => {
+    if (isWorkspaceSlugConflict(error)) {
+      setSlugServerError(t(($) => $.create_form.errors.slug_taken));
+      toast.error(t(($) => $.create_form.errors.slug_conflict_toast));
+      return;
+    }
+    toast.error(
+      error instanceof Error && error.message
+        ? error.message
+        : t(($) => $.create_form.errors.create_failed),
     );
   };
+
+  const handleSubmit = () => {
+    if (!canSubmit) return;
+
+    if (copyMode && sourceWorkspaceId) {
+      copyWorkspace.mutate(
+        {
+          name: name.trim(),
+          slug: slug.trim(),
+          source_workspace_id: sourceWorkspaceId,
+          copy: copySelections,
+        },
+        { onSuccess, onError: handleError },
+      );
+    } else {
+      createWorkspace.mutate(
+        { name: name.trim(), slug: slug.trim() },
+        { onSuccess, onError: handleError },
+      );
+    }
+  };
+
+  const isPending = createWorkspace.isPending || copyWorkspace.isPending;
 
   return (
     <Card className="w-full">
@@ -94,7 +151,7 @@ export function CreateWorkspaceForm({ onSuccess }: CreateWorkspaceFormProps) {
             placeholder={t(($) => $.create_form.name_placeholder)}
             onKeyDown={(e) => {
               if (isImeComposing(e)) return;
-              if (e.key === "Enter") handleCreate();
+              if (e.key === "Enter") handleSubmit();
             }}
           />
         </div>
@@ -113,7 +170,7 @@ export function CreateWorkspaceForm({ onSuccess }: CreateWorkspaceFormProps) {
               className="border-0 shadow-none focus-visible:ring-0"
               onKeyDown={(e) => {
                 if (isImeComposing(e)) return;
-                if (e.key === "Enter") handleCreate();
+                if (e.key === "Enter") handleSubmit();
               }}
             />
           </div>
@@ -121,13 +178,68 @@ export function CreateWorkspaceForm({ onSuccess }: CreateWorkspaceFormProps) {
             <p className="text-xs text-destructive">{slugError}</p>
           )}
         </div>
+
+        {/* Copy mode toggle */}
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id="copy-mode"
+            checked={copyMode}
+            onCheckedChange={(v) => {
+              setCopyMode(!!v);
+              if (!v) setSourceWorkspaceId("");
+            }}
+          />
+          <Label htmlFor="copy-mode" className="cursor-pointer font-normal">
+            Copy from existing workspace
+          </Label>
+        </div>
+
+        {copyMode && (
+          <div className="space-y-3 pl-6">
+            <div className="space-y-1.5">
+              <Label>Source workspace</Label>
+              <Select value={sourceWorkspaceId} onValueChange={(v) => setSourceWorkspaceId(v ?? "")}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a workspace…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {workspaces.map((ws) => (
+                    <SelectItem key={ws.id} value={ws.id}>
+                      {ws.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-sm text-muted-foreground">What to copy</Label>
+              {COPY_SELECTION_KEYS.map((key) => (
+                <div key={key} className="flex items-center gap-2">
+                  <Checkbox
+                    id={`copy-${key}`}
+                    checked={copySelections[key]}
+                    onCheckedChange={() => toggleSelection(key)}
+                  />
+                  <Label
+                    htmlFor={`copy-${key}`}
+                    className="cursor-pointer font-normal capitalize"
+                  >
+                    {key}
+                  </Label>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <Button
           className="w-full"
           size="lg"
-          onClick={handleCreate}
-          disabled={createWorkspace.isPending || !canSubmit}
+          onClick={handleSubmit}
+          disabled={isPending || !canSubmit}
         >
-          {createWorkspace.isPending
+          {isPending
             ? t(($) => $.create_form.submitting)
             : t(($) => $.create_form.submit)}
         </Button>
