@@ -309,3 +309,19 @@ func (q *Queries) RevokeInvitation(ctx context.Context, id pgtype.UUID) error {
 	_, err := q.db.Exec(ctx, revokeInvitation, id)
 	return err
 }
+
+const hasAnyPendingInvitationForEmail = `-- name: HasAnyPendingInvitationForEmail :one
+SELECT EXISTS(
+    SELECT 1 FROM workspace_invitation
+    WHERE invitee_email = $1
+      AND status = 'pending'
+      AND expires_at > now()
+) AS has_invite
+`
+
+func (q *Queries) HasAnyPendingInvitationForEmail(ctx context.Context, inviteeEmail string) (bool, error) {
+	row := q.db.QueryRow(ctx, hasAnyPendingInvitationForEmail, inviteeEmail)
+	var hasInvite bool
+	err := row.Scan(&hasInvite)
+	return hasInvite, err
+}
