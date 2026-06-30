@@ -137,4 +137,8 @@ const (
 
 	// Wiki events
 	EventWikiChanged = "wiki_changed"
+
+	// Slack installation lifecycle (MUL-3666).
+	EventSlackInstallationCreated = "slack_installation:created"
+	EventSlackInstallationRevoked = "slack_installation:revoked"
 )

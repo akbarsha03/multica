@@ -294,6 +294,52 @@ export function createEnDict(allowSignup: boolean): LandingDict {
     },
     entries: [
       {
+        version: "0.3.33",
+        date: "2026-06-30",
+        title: "Autopilot access controls, Slack history backfill, and skill-archive imports",
+        changes: [],
+        features: [
+          "Autopilots now have a clear write-permission layer, plus a Manage Access dialog that lets the creator grant write access to specific workspace members.",
+          "Slack channels can backfill their conversation history into Multica, so an agent has the prior context the moment it joins.",
+          "Slack messages show a 👀 reaction while an agent is preparing its reply, and the reaction is always cleared on the way out.",
+          "Skill bundles can be installed from a local .skill or .zip archive.",
+          "multica issue commands no longer accept short UUID prefixes — use the issue key (MUL-123) or the full UUID.",
+          "The Agents page is now usable on mobile.",
+        ],
+        improvements: [
+          "Comment routing was rewritten end-to-end so parent-chain mentions, agent-authored replies, and squad-leader fallback all flow through one well-tested cascade.",
+          "Locale bundles dropped 117 dead `_one` plural keys, with a parity test guarding against regressions.",
+          "The built-in runtime list now points at CodeBuddy instead of the removed Gemini runtime.",
+          "Self-host preflight accepts newer Docker Compose CLI plugin versions while still rejecting Docker Compose v1.",
+        ],
+        fixes: [
+          "After a WebSocket reconnect, the daemon now reconciles in-flight tasks and workspace state immediately. (Community contribution.)",
+          "Antigravity replies that the agent produces silently now show up reliably instead of recording a blank but completed run.",
+          "Servers backed by managed Redis providers that reject CLIENT SETNAME now start up cleanly. (Community contribution.)",
+          "The agent-activity hover header now reads in terms of tasks instead of agents, so it agrees with the workspace chip.",
+        ],
+      },
+      {
+        version: "0.3.32",
+        date: "2026-06-29",
+        title: "Detach sub-Issues, sturdier daemon reconnects, and friendlier attachment previews",
+        changes: [],
+        features: [
+          "Issues now have a Remove parent action, so you can detach a sub-Issue without first having to pick a different parent.",
+        ],
+        improvements: [
+          "The local daemon reconnects to Multica through a more resilient WebSocket flow with bounded backoff, so brief network drops recover smoothly instead of stalling.",
+          "The daemon now bounds each runtime probe with its own timeout, so a single wedged CLI can no longer block every other runtime from coming online.",
+        ],
+        fixes: [
+          "Scheduled autopilots advance their next-run time the moment a run is dispatched, so a slow runner can no longer cause back-to-back duplicate dispatches.",
+          "Attachment previews open correctly whether the URL redirects inside a frame, comes back from the same origin, or was uploaded locally — and local upload URLs are now preferred when available.",
+          "When the failed-task handler unsticks an Issue, the Issue view refreshes immediately instead of waiting for a manual reload.",
+          "Sticky Issue comment headers share the same background fade as the highlight, so settling on a comment no longer looks out of sync.",
+          "Chat conversations refresh their message cache when reconnecting, so you no longer see stale messages right after coming back online.",
+        ],
+      },
+      {
         version: "0.3.31",
         date: "2026-06-26",
         title: "Cross-workspace unread dot, Composio toolkit foundation, and a friendlier editor",
