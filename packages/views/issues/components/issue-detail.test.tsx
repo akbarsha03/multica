@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Issue, TimelineEntry } from "@multica/core/types";
 import { I18nProvider } from "@multica/core/i18n/react";
+import { useCommentSortStore } from "@multica/core/preferences";
 import enCommon from "../../locales/en/common.json";
 import enIssues from "../../locales/en/issues.json";
 
@@ -515,6 +516,8 @@ describe("IssueDetail (shared)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockViewport.isMobile = false;
+    // Reset the persisted comment-sort preference between tests.
+    useCommentSortStore.setState({ order: "desc" });
     // Default: issue loads successfully
     mockApiObj.getIssue.mockResolvedValue(mockIssue);
     // /timeline returns the entries flat in chronological order (oldest first).
@@ -794,6 +797,39 @@ describe("IssueDetail (shared)", () => {
     });
 
     expect(screen.getByText("I can help with this")).toBeInTheDocument();
+  });
+
+  it("orders top-level comments newest-first by default", async () => {
+    renderIssueDetail();
+
+    const older = await screen.findByText("Started working on this");
+    const newer = screen.getByText("I can help with this");
+
+    // desc (default): comment-2 (2026-01-17, "newer") renders before
+    // comment-1 (2026-01-16, "older").
+    expect(
+      older.compareDocumentPosition(newer) & Node.DOCUMENT_POSITION_PRECEDING,
+    ).toBeTruthy();
+  });
+
+  it("flips to oldest-first via the sort-order toggle and persists the choice", async () => {
+    renderIssueDetail();
+
+    await screen.findByText("Started working on this");
+    fireEvent.click(screen.getByRole("button", { name: "Newest first" }));
+
+    await waitFor(() => {
+      const older = screen.getByText("Started working on this");
+      const newer = screen.getByText("I can help with this");
+      // asc: the older comment now renders before the newer one.
+      expect(
+        older.compareDocumentPosition(newer) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    });
+
+    // The toggle's label flips to describe the new current state.
+    expect(screen.getByRole("button", { name: "Oldest first" })).toBeInTheDocument();
+    expect(useCommentSortStore.getState().order).toBe("asc");
   });
 
   it("reruns the source task from an agent failure comment", async () => {
