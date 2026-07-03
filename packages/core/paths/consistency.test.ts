@@ -29,6 +29,7 @@ describe("paths.workspace() shape", () => {
         "skills",
         "squads",
         "settings",
+        "wiki",
       ]),
     );
   });
