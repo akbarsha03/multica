@@ -13,8 +13,14 @@ const TEST_RESOURCES = {
 };
 
 const mockMutate = vi.fn();
+const mockCopyMutate = vi.fn();
 vi.mock("@multica/core/workspace/mutations", () => ({
   useCreateWorkspace: () => ({ mutate: mockMutate, isPending: false }),
+  useCopyWorkspace: () => ({ mutate: mockCopyMutate, isPending: false }),
+}));
+
+vi.mock("@multica/core/workspace/queries", () => ({
+  workspaceListOptions: () => ({ queryKey: ["workspaces"] }),
 }));
 
 function I18nWrapper({ children }: { children: ReactNode }) {
@@ -38,6 +44,7 @@ function renderForm(onSuccess = vi.fn()) {
 describe("CreateWorkspaceForm", () => {
   beforeEach(() => {
     mockMutate.mockReset();
+    mockCopyMutate.mockReset();
     configStore.setState({ daemonAppUrl: "" });
   });
 
@@ -128,5 +135,43 @@ describe("CreateWorkspaceForm", () => {
       screen.getByRole("button", { name: /create workspace/i }),
     ).toBeDisabled();
     expect(screen.getByText(/reserved and cannot be used/i)).toBeInTheDocument();
+  });
+
+  it("reveals the source-workspace picker and copy checklist when copy mode is toggled on", () => {
+    renderForm();
+    fireEvent.change(screen.getByLabelText(/workspace name/i), {
+      target: { value: "Acme Corp" },
+    });
+    expect(screen.queryByText("Source workspace")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /copy from existing workspace/i }));
+
+    expect(screen.getByText("Source workspace")).toBeInTheDocument();
+    expect(screen.getByText("agents")).toBeInTheDocument();
+    expect(screen.getByText("wiki")).toBeInTheDocument();
+    // Copy mode is on but no source workspace is chosen yet — submit stays gated
+    // (copyModeReady in create-workspace-form.tsx).
+    expect(
+      screen.getByRole("button", { name: /create workspace/i }),
+    ).toBeDisabled();
+  });
+
+  it("re-enables submit when copy mode is turned back off", () => {
+    renderForm();
+    fireEvent.change(screen.getByLabelText(/workspace name/i), {
+      target: { value: "Acme Corp" },
+    });
+
+    const copyModeCheckbox = screen.getByRole("checkbox", { name: /copy from existing workspace/i });
+    fireEvent.click(copyModeCheckbox);
+    expect(
+      screen.getByRole("button", { name: /create workspace/i }),
+    ).toBeDisabled();
+
+    fireEvent.click(copyModeCheckbox);
+    expect(screen.queryByText("Source workspace")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /create workspace/i }),
+    ).not.toBeDisabled();
   });
 });

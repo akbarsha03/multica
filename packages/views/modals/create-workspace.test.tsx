@@ -12,6 +12,7 @@ const TEST_RESOURCES = {
 
 const mockPush = vi.hoisted(() => vi.fn());
 const mockCreateWorkspaceMutate = vi.hoisted(() => vi.fn());
+const mockCopyWorkspaceMutate = vi.hoisted(() => vi.fn());
 const mockToastError = vi.hoisted(() => vi.fn());
 
 vi.mock("../navigation", () => ({
@@ -23,6 +24,22 @@ vi.mock("@multica/core/workspace/mutations", () => ({
     mutate: mockCreateWorkspaceMutate,
     isPending: false,
   }),
+  useCopyWorkspace: () => ({
+    mutate: mockCopyWorkspaceMutate,
+    isPending: false,
+  }),
+}));
+
+vi.mock("@multica/core/workspace/queries", () => ({
+  workspaceListOptions: () => ({ queryKey: ["workspaces"] }),
+}));
+
+// CreateWorkspaceForm's workspace-list query needs a QueryClient in the tree;
+// mocking useQuery directly (rather than adding a real QueryClientProvider)
+// keeps this modal test focused on create-mode, matching create-project.test.tsx's
+// convention for the same shape of dependency.
+vi.mock("@tanstack/react-query", () => ({
+  useQuery: () => ({ data: [] }),
 }));
 
 vi.mock("@multica/ui/components/ui/dialog", () => ({
