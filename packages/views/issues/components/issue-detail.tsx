@@ -7,8 +7,6 @@ import { AppLink } from "../../navigation";
 import { useNavigation } from "../../navigation";
 import {
   Archive,
-  ArrowDown,
-  ArrowUp,
   Calendar,
   CalendarClock,
   CalendarDays,
@@ -80,7 +78,6 @@ import { useRecentIssuesStore } from "@multica/core/issues/stores";
 import { useIssueSelectionStore } from "@multica/core/issues/stores/selection-store";
 import { BatchActionToolbar } from "./batch-action-toolbar";
 import { useIssueTimeline } from "../hooks/use-issue-timeline";
-import { useCommentSortStore } from "@multica/core/preferences";
 import { useIssueReactions } from "../hooks/use-issue-reactions";
 import { useIssueSubscribers } from "../hooks/use-issue-subscribers";
 import { ReactionBar } from "@multica/ui/components/common/reaction-bar";
@@ -914,9 +911,6 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
     editComment, deleteComment, toggleResolveComment, toggleReaction: handleToggleReaction,
   } = useIssueTimeline(id, user?.id);
 
-  const commentSortOrder = useCommentSortStore((s) => s.order);
-  const setCommentSortOrder = useCommentSortStore((s) => s.setOrder);
-
   // Resolve / unresolve must always clear the per-session expand entry so
   // re-resolving an already-expanded thread folds it back to the bar (the
   // expand Set is keyed only on commentId, not on resolution state). Without
@@ -1028,19 +1022,10 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   // changes (timeline events) or expandedResolved flips (user toggles a
   // resolved thread). Kept in a useMemo so Virtuoso's data identity is stable
   // across unrelated re-renders.
-  //
-  // commentSortOrder only flips the render order of top-level groups
-  // (threads / activity blocks) here, at the very end of the pipeline —
-  // NOT earlier in `topLevel`/`coalesced` above. Coalescing ("most recent
-  // wins"), the trailing-activity-block truncation (`.slice(-N)`), and
-  // `lastActivityGroupId` (backward walk for "the newest activities group")
-  // all assume `timelineView.groups` stays chronological-ascending. Replies
-  // inside a thread (`collectThreadReplies`) are untouched by this and stay
-  // chronological regardless of order — see thread-utils.ts.
-  const items = useMemo<TimelineItem[]>(() => {
-    const flat = flattenGroups(timelineView.groups, expandedResolved);
-    return commentSortOrder === "desc" ? flat.slice().reverse() : flat;
-  }, [timelineView.groups, expandedResolved, commentSortOrder]);
+  const items = useMemo<TimelineItem[]>(
+    () => flattenGroups(timelineView.groups, expandedResolved),
+    [timelineView.groups, expandedResolved],
+  );
 
   // ID of the trailing activity block — the only one expanded by default.
   const lastActivityGroupId = useMemo(() => {
@@ -1369,9 +1354,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   }, [beginDesktopSidebarToggle, isMobile, sidebarRef]);
 
   useIssueDetailScrollRestore({
-    // Includes commentSortOrder: a saved pixel offset from one order is
-    // meaningless after the timeline flips direction.
-    restoreKey: `${wsId}:${id}:${commentSortOrder}`,
+    restoreKey: `${wsId}:${id}`,
     scrollContainerEl,
     ready: !!issue && !loading && !timelineLoading,
     disabled: !!highlightCommentId,
@@ -2118,32 +2101,6 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
                 <h2 className="text-base font-semibold">{t(($) => $.detail.activity_section)}</h2>
               </div>
               <div className="flex items-center gap-2">
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        className="text-muted-foreground"
-                        aria-label={
-                          commentSortOrder === "desc"
-                            ? t(($) => $.detail.comments_newest_first_title)
-                            : t(($) => $.detail.comments_oldest_first_title)
-                        }
-                        onClick={() =>
-                          setCommentSortOrder(commentSortOrder === "desc" ? "asc" : "desc")
-                        }
-                      >
-                        {commentSortOrder === "desc" ? <ArrowDown className="size-3.5" /> : <ArrowUp className="size-3.5" />}
-                      </Button>
-                    }
-                  />
-                  <TooltipContent side="bottom">
-                    {commentSortOrder === "desc"
-                      ? t(($) => $.detail.comments_newest_first_title)
-                      : t(($) => $.detail.comments_oldest_first_title)}
-                  </TooltipContent>
-                </Tooltip>
                 <button
                   type="button"
                   onClick={handleToggleSubscribe}
@@ -2231,13 +2188,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
                 ) : (
                   <div className="mt-4">
                     <Virtuoso
-                      // commentSortOrder is part of the key: Virtuoso caches
-                      // item-height estimates by index, which go stale the
-                      // instant `items` reverses (index 0 now points at a
-                      // different entry) — force a clean remount instead of
-                      // fighting a jumpy scroll position with mismatched
-                      // estimates.
-                      key={`${wsId}:${id}:${commentSortOrder}`}
+                      key={`${wsId}:${id}`}
                       customScrollParent={scrollContainerEl}
                       data={items}
                       increaseViewportBy={{ top: 800, bottom: 800 }}
