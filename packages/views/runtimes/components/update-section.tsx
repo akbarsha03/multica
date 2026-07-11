@@ -213,11 +213,15 @@ export function UpdateSection({
             )}
 
             {hasUpdate && isOnline && !status && (
+              // Disabled unconditionally: in-app self-update is turned off
+              // for this deployment (daemon self-update is also blocked
+              // server-side). Kept visible, greyed out, and non-interactive
+              // so the version-available indicator still shows but nobody
+              // can accidentally trigger an update.
               <Button
                 variant="outline"
                 size="xs"
-                onClick={handleUpdate}
-                disabled={updating}
+                disabled
               >
                 <ArrowUpCircle className="h-3 w-3" />
                 {t(($) => $.update.action)}
