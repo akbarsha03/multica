@@ -9,6 +9,7 @@ import { DashboardGuard } from "./dashboard-guard";
 import { NavigationProgress } from "./navigation-progress";
 import { WorkspacePresencePrefetch } from "./workspace-presence-prefetch";
 import { CommentSoundBridge } from "../notifications/comment-sound-bridge";
+import { GlobalShortcuts } from "./global-shortcuts";
 
 interface DashboardLayoutProps {
   children: ReactNode;
@@ -34,7 +35,8 @@ export function DashboardLayout({
         </div>
       }
     >
-      <SidebarProvider className="h-svh">
+      <SidebarProvider className="h-svh bg-app-shell">
+        <GlobalShortcuts />
         <WorkspacePresencePrefetch />
         <CommentSoundBridge />
         <AppSidebar searchSlot={searchSlot} />

@@ -198,7 +198,11 @@ export function CreateWorkspaceForm({ onSuccess }: CreateWorkspaceFormProps) {
           <div className="space-y-3 pl-6">
             <div className="space-y-1.5">
               <Label>Source workspace</Label>
-              <Select value={sourceWorkspaceId} onValueChange={(v) => setSourceWorkspaceId(v ?? "")}>
+              <Select
+                items={workspaces.map((ws) => ({ value: ws.id, label: ws.name }))}
+                value={sourceWorkspaceId}
+                onValueChange={(v) => setSourceWorkspaceId(v ?? "")}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Select a workspace…" />
                 </SelectTrigger>

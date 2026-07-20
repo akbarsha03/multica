@@ -74,3 +74,4 @@ data/
 deploy.sh
 run-backend.sh
 run-frontend.sh
+.gstack/
