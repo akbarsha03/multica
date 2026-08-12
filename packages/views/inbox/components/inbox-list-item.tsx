@@ -10,7 +10,10 @@ import type { InboxItem } from "@multica/core/types";
 import type { InboxView } from "./inbox-view";
 import { InboxDetailLabel } from "./inbox-detail-label";
 import { getInboxDisplayTitle } from "./inbox-display";
+import { useInboxContextMenu } from "./inbox-context-menu";
 import { useT } from "../../i18n";
+import { paths, useWorkspaceSlug } from "@multica/core/paths";
+import { resolveClickIntent, useIntentNavigate } from "../../navigation";
 
 // Hook returning a localized relative-time formatter — the i18n equivalent
 // of the previous static `timeAgo` function. Returning a function (rather
@@ -46,6 +49,16 @@ export function InboxListItem({
 }) {
   const { t } = useT("inbox");
   const timeAgo = useTimeAgo();
+  const openContextMenu = useInboxContextMenu();
+  // Null-safe slug (not useWorkspacePaths, which throws): the row renders in
+  // tests and could render outside a workspace route; without a slug the
+  // modifier-click affordance simply stays off.
+  const slug = useWorkspaceSlug();
+  const issueHref =
+    slug && item.issue_id
+      ? paths.workspace(slug).issueDetail(item.issue_id)
+      : null;
+  const intentNavigate = useIntentNavigate();
   const displayTitle = getInboxDisplayTitle(item);
   const isArchivedView = view === "archived";
   // Archiving deliberately leaves `read` untouched so unarchiving restores the
@@ -61,9 +74,33 @@ export function InboxListItem({
   return (
     <button
       type="button"
-      onClick={onClick}
-      className={`group flex w-full items-center gap-3 rounded-md px-2 py-2.5 text-left transition-colors ${
-        isSelected ? "bg-accent" : "hover:bg-accent/50"
+      onClick={(e) => {
+        // Plain click keeps the master-detail selection; a modifier click on
+        // a row that references an issue opens that issue as its own tab.
+        if (issueHref) {
+          const intent = resolveClickIntent(e);
+          if (intent !== "push") {
+            intentNavigate(issueHref, intent);
+            return;
+          }
+        }
+        onClick();
+      }}
+      onAuxClick={(e) => {
+        if (e.defaultPrevented || e.button !== 1 || !issueHref) return;
+        e.preventDefault();
+        intentNavigate(issueHref, "background-tab");
+      }}
+      // Right-click opens the list's shared menu (mark read/unread, archive).
+      // `select-none` mirrors what Base UI's own trigger used to merge in, so
+      // right-clicking a row never starts a text selection.
+      onContextMenu={
+        openContextMenu ? (e) => openContextMenu(item, e) : undefined
+      }
+      className={`group flex w-full select-none items-center gap-3 rounded-md px-2 py-2.5 text-left transition-colors ${
+        isSelected
+          ? "bg-accent"
+          : "hover:bg-accent/50 data-[popup-open]:bg-accent/50"
       }`}
     >
       <ActorAvatar
@@ -79,7 +116,7 @@ export function InboxListItem({
               <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-brand" />
             )}
             <span
-              className={`truncate text-sm ${showUnread ? "font-medium" : "text-muted-foreground"}`}
+              className={`truncate text-body ${showUnread ? "font-medium" : "text-muted-foreground"}`}
             >
               {displayTitle}
             </span>
@@ -110,7 +147,7 @@ export function InboxListItem({
           </div>
         </div>
         <div className="mt-0.5 flex items-center justify-between gap-2">
-          <p className={`min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-xs ${showUnread ? "text-muted-foreground" : "text-muted-foreground/60"}`}>
+          <p className={`min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-caption ${showUnread ? "text-muted-foreground" : "text-muted-foreground"}`}>
             <InboxDetailLabel item={item} />
           </p>
           <div className="flex shrink-0 items-center gap-1.5">
@@ -125,7 +162,7 @@ export function InboxListItem({
                 hoverCard={false}
               />
             )}
-            <span className={`text-xs ${showUnread ? "text-muted-foreground" : "text-muted-foreground/60"}`}>
+            <span className={`text-caption ${showUnread ? "text-muted-foreground" : "text-muted-foreground"}`}>
               {timeAgo(item.created_at)}
             </span>
           </div>

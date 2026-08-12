@@ -80,3 +80,7 @@ deploy.sh
 run-backend.sh
 run-frontend.sh
 .gstack/
+
+# Python (agent tooling)
+__pycache__/
+*.pyc

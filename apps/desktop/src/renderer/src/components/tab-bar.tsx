@@ -256,13 +256,20 @@ function SortableTabItem({
       {...attributes}
       {...listeners}
       onClick={handleClick}
+      // Browser convention: middle click closes the tab. Pinned (and sole)
+      // tabs suppress the close affordance, so middle click follows suit.
+      onAuxClick={(e) => {
+        if (e.button !== 1 || !showCloseButton) return;
+        e.preventDefault();
+        handleClose(e);
+      }}
       aria-label={tab.pinned ? `${title} (pinned)` : title}
       data-tab-active={isActive ? "true" : undefined}
       data-tab-entering={isEntering ? "true" : undefined}
       title={tab.pinned ? `${title} (pinned)` : undefined}
       style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
       className={cn(
-        "group relative flex size-full min-w-0 items-center gap-1.5 px-2.5 text-xs transition-colors",
+        "group relative flex size-full min-w-0 items-center gap-1.5 px-2.5 text-caption transition-colors",
         "select-none cursor-default",
         isActive
           ? "font-medium text-foreground"
@@ -500,7 +507,7 @@ function NewTabButton() {
       aria-label="New tab"
       title="New tab"
       style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-      className="mb-1 flex size-7 shrink-0 items-center justify-center self-end rounded-md text-muted-foreground/70 transition-colors hover:bg-muted/50 hover:text-muted-foreground"
+      className="mb-1 flex size-7 shrink-0 items-center justify-center self-end rounded-md text-faint-foreground transition-colors hover:bg-muted/50 hover:text-muted-foreground"
     >
       <Plus className="size-3.5" />
     </button>

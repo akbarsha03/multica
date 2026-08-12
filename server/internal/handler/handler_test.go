@@ -506,6 +506,60 @@ func TestDeleteIssueByIdentifier(t *testing.T) {
 	}
 }
 
+// TestGetIssueByIdentifierEnforcesPrefix covers the contract behind the
+// human-readable issue URL `/{ws}/issues/{key}`: the prefix is part of the key,
+// not decoration. Identifier resolution used to compare the number only, so
+// every prefix with the right number opened the same issue — which means no
+// identifier URL could be treated as canonical, and a mistyped or stale prefix
+// silently opened someone else's link target.
+func TestGetIssueByIdentifierEnforcesPrefix(t *testing.T) {
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+		"title":    "Issue addressed by identifier",
+		"status":   "todo",
+		"priority": "medium",
+	})
+	testHandler.CreateIssue(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("CreateIssue: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var created IssueResponse
+	json.NewDecoder(w.Body).Decode(&created)
+
+	idx := strings.LastIndex(created.Identifier, "-")
+	if idx <= 0 {
+		t.Fatalf("CreateIssue: unexpected identifier %q", created.Identifier)
+	}
+	prefix, number := created.Identifier[:idx], created.Identifier[idx+1:]
+
+	// The workspace's own prefix resolves, in either case — a hand-typed
+	// lowercase key from a chat message must open the same issue.
+	for _, id := range []string{created.Identifier, strings.ToLower(created.Identifier)} {
+		w = httptest.NewRecorder()
+		req = newRequest("GET", "/api/issues/"+id, nil)
+		req = withURLParam(req, "id", id)
+		testHandler.GetIssue(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("GetIssue(%q): expected 200, got %d: %s", id, w.Code, w.Body.String())
+		}
+		var got IssueResponse
+		json.NewDecoder(w.Body).Decode(&got)
+		if got.ID != created.ID {
+			t.Fatalf("GetIssue(%q): resolved to %s, want %s", id, got.ID, created.ID)
+		}
+	}
+
+	// A foreign prefix carrying the right number must not resolve.
+	foreign := prefix + "X-" + number
+	w = httptest.NewRecorder()
+	req = newRequest("GET", "/api/issues/"+foreign, nil)
+	req = withURLParam(req, "id", foreign)
+	testHandler.GetIssue(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("GetIssue(%q): expected 404 for a foreign prefix, got %d: %s", foreign, w.Code, w.Body.String())
+	}
+}
+
 // TestDeleteIssueRejectsInvalidUUID verifies that a path segment that is
 // neither a valid UUID nor a valid identifier returns 404 (not 204) — the
 // handler must never silently succeed on malformed input.
@@ -3803,10 +3857,11 @@ func TestNestedMemberReplyUsesDirectParentForMentionInheritance(t *testing.T) {
 	}
 }
 
-// TestNestedMemberReplyWithMemberParentFallsBackToAssignee verifies that a
-// nested reply whose direct parent is human-owned does not route to a sibling
-// agent reply. It falls through to the issue assignee instead.
-func TestNestedMemberReplyUsesDirectParentForAssigneeParticipation(t *testing.T) {
+// TestNestedMemberReplyUnderMemberSkipsAssigneeFallback verifies that a nested
+// reply whose direct parent is human-owned neither routes to a sibling agent
+// reply nor falls back to the issue assignee. A sibling agent comment alone
+// does not establish a conversation owner for the member-authored root.
+func TestNestedMemberReplyUnderMemberSkipsAssigneeFallback(t *testing.T) {
 	if testHandler == nil || testPool == nil {
 		t.Skip("database not available")
 	}
@@ -3894,8 +3949,8 @@ func TestNestedMemberReplyUsesDirectParentForAssigneeParticipation(t *testing.T)
 	if nested.ParentID == nil || *nested.ParentID != humanParentID {
 		t.Fatalf("stored nested reply parent_id should keep direct parent %s, got %v", humanParentID, nested.ParentID)
 	}
-	if got := countAssigneeQueued(); got != 1 {
-		t.Fatalf("plain nested human reply should fall back to assignee; got %d queued tasks", got)
+	if got := countAssigneeQueued(); got != 0 {
+		t.Fatalf("plain nested human reply queued assignee tasks = %d, want 0", got)
 	}
 }
 

@@ -42,6 +42,8 @@ vi.mock("@multica/core/paths", () => ({
 
 vi.mock("../navigation", () => ({
   useNavigation: () => ({ push: vi.fn(), openInNewTab: vi.fn() }),
+  useOptionalNavigation: () => ({ push: vi.fn(), openInNewTab: vi.fn() }),
+  resolveClickIntent: () => "push",
   useAppOrigin: () => null,
 }));
 
@@ -60,7 +62,10 @@ vi.mock("./link-hover-card", () => ({
   LinkHoverCard: () => null,
 }));
 
-vi.mock("./utils/link-handler", () => ({
+// Partial: only navigation is stubbed. The pure URL predicates stay real so
+// these autolink fixtures assert the renderer's actual link/chip dispatch.
+vi.mock("./utils/link-handler", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./utils/link-handler")>()),
   openLink: vi.fn(),
   isMentionHref: (href?: string) => Boolean(href?.startsWith("mention://")),
 }));
@@ -461,7 +466,7 @@ describe("ReadonlyContent Mermaid rendering", () => {
       return found!;
     });
 
-    expect(document.querySelector(".mermaid-viewer-canvas")).toBeNull();
+    expect(document.querySelector(".zoom-canvas")).toBeNull();
 
     fireEvent.click(expandButton);
 
@@ -479,7 +484,7 @@ describe("ReadonlyContent Mermaid rendering", () => {
 
     fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => {
-      expect(document.querySelector(".mermaid-viewer-canvas")).toBeNull();
+      expect(document.querySelector(".zoom-canvas")).toBeNull();
     });
   });
 
