@@ -83,6 +83,9 @@ const TYPE_LABEL: Record<InboxItemType, string> = {
   quick_create_done:   "Quick create done",
   quick_create_failed: "Quick create failed",
   wiki_proposal:       "Wiki proposal",
+  // Outcome unknown, not failed — the issue may actually have been created,
+  // so this must not read as a failure (upstream v0.4.23).
+  quick_create_unconfirmed: "Quick create unconfirmed",
 };
 
 function inboxSubtitle(item: UnifiedInboxItem): string {

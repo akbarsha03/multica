@@ -711,7 +711,7 @@ func (h *Handler) CopyWorkspace(w http.ResponseWriter, r *http.Request) {
 	}
 
 	slog.Info("workspace copied", append(logger.RequestAttrs(r), "source_workspace_id", uuidToString(srcID), "new_workspace_id", uuidToString(newWs.ID))...)
-	writeJSON(w, http.StatusCreated, workspaceToResponse(newWs))
+	writeJSON(w, http.StatusCreated, h.workspaceToResponse(newWs))
 }
 
 type UpdateWorkspaceRequest struct {
