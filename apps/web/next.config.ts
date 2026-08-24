@@ -39,6 +39,10 @@ const allowedDevOrigins = process.env.CORS_ALLOWED_ORIGINS
   : undefined;
 
 const nextConfig: NextConfig = {
+  // Next 16's proxy truncates request bodies at 10MB by default; the server
+  // accepts 100MB (maxUploadSize), so larger uploads hung mid-body and surfaced
+  // as a 500. Keep in sync with server/internal/handler/file.go.
+  experimental: { proxyClientMaxBodySize: "100mb" },
   ...(process.env.STANDALONE === "true" ? { output: "standalone" as const } : {}),
   transpilePackages: ["@multica/core", "@multica/ui", "@multica/views"],
   ...(allowedDevOrigins && allowedDevOrigins.length > 0
