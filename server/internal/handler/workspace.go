@@ -387,7 +387,7 @@ func (h *Handler) CopyWorkspace(w http.ResponseWriter, r *http.Request) {
 	qtx := h.Queries.WithTx(tx)
 
 	// Create new workspace
-	issuePrefix := generateIssuePrefix(req.Name)
+	issuePrefix := defaultIssuePrefixFromSlug(req.Slug)
 	newWs, err := qtx.CreateWorkspace(r.Context(), db.CreateWorkspaceParams{
 		Name:        req.Name,
 		Slug:        req.Slug,

@@ -86,6 +86,9 @@ const TYPE_LABEL: Record<InboxItemType, string> = {
   // Outcome unknown, not failed — the issue may actually have been created,
   // so this must not read as a failure (upstream v0.4.23).
   quick_create_unconfirmed: "Quick create unconfirmed",
+  // Issue-less system notices (upstream v0.4.38).
+  autopilot_paused:    "Autopilot paused",
+  autopilot_quota_exceeded: "Autopilot run limit reached",
 };
 
 function inboxSubtitle(item: UnifiedInboxItem): string {
