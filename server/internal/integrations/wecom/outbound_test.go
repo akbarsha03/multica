@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"sync/atomic"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -38,6 +39,14 @@ type fakeOutboundQueries struct {
 	memberErr      error
 	workspace      db.Workspace
 	workspaceErr   error
+	attachments    []db.Attachment
+	attachmentsErr error
+	// lookupGate holds every attachment lookup open until it is closed, which
+	// is what a slow database looks like from in here. lookupsEntered counts
+	// the arrivals, so a test can ask how many deliveries got as far as the
+	// query rather than how many the counter was told about.
+	lookupGate     chan struct{}
+	lookupsEntered atomic.Int64
 	// tasks answers the retry-clone lookup: the round is bound under the turn
 	// that owns the input batch, and a clone reaches it through
 	// chat_input_task_id. A task with no row here reads as pgx.ErrNoRows —
@@ -74,8 +83,17 @@ type fakeOutboundQueries struct {
 func askedOverWecom() *bool  { asked := true; return &asked }
 func askedInTheWebUI() *bool { asked := false; return &asked }
 
-func (f *fakeOutboundQueries) GetChannelChatSessionBindingBySession(context.Context, db.GetChannelChatSessionBindingBySessionParams) (db.ChannelChatSessionBinding, error) {
-	return f.sessionBinding, f.sessionErr
+func (f *fakeOutboundQueries) GetChannelTaskDelivery(context.Context, pgtype.UUID) (db.ChannelTaskDelivery, error) {
+	if f.sessionErr != nil {
+		return db.ChannelTaskDelivery{}, f.sessionErr
+	}
+	return db.ChannelTaskDelivery{
+		BindingID: f.sessionBinding.ID, InstallationID: f.sessionBinding.InstallationID,
+		ChannelType: channelTypeWecom, ChannelChatID: f.sessionBinding.ChannelChatID,
+		ChatType:         f.sessionBinding.ChatType,
+		ChannelMessageID: f.sessionBinding.LastMessageID, ChannelThreadID: f.sessionBinding.LastThreadID,
+		RouteRevision: f.sessionBinding.RouteRevision, Config: f.sessionBinding.Config,
+	}, nil
 }
 func (f *fakeOutboundQueries) GetChannelInstallation(context.Context, db.GetChannelInstallationParams) (db.ChannelInstallation, error) {
 	return f.installation, f.installErr
@@ -85,6 +103,13 @@ func (f *fakeOutboundQueries) FindChannelBindingForMember(context.Context, db.Fi
 }
 func (f *fakeOutboundQueries) GetWorkspace(context.Context, pgtype.UUID) (db.Workspace, error) {
 	return f.workspace, f.workspaceErr
+}
+func (f *fakeOutboundQueries) ListAttachmentsByChatMessage(context.Context, db.ListAttachmentsByChatMessageParams) ([]db.Attachment, error) {
+	if f.lookupGate != nil {
+		f.lookupsEntered.Add(1)
+		<-f.lookupGate
+	}
+	return f.attachments, f.attachmentsErr
 }
 func (f *fakeOutboundQueries) GetAgentTask(_ context.Context, id pgtype.UUID) (db.AgentTaskQueue, error) {
 	f.taskGets++
