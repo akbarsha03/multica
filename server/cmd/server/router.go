@@ -1479,6 +1479,11 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	r.With(authRL).Post("/auth/send-code", h.SendCode)
 	r.With(authVerifyRL).Post("/auth/verify-code", h.VerifyCode)
 	r.With(authRL).Post("/auth/google", h.GoogleLogin)
+	// Break-glass password sign-in for the instance operator (self-hosted only,
+	// off unless MULTICA_ADMIN_PASSWORD + MULTICA_ADMIN_EMAILS are set). Serves
+	// its own minimal form so it keeps working when the web app cannot.
+	r.Get("/auth/password", h.AdminPasswordLoginPage)
+	r.With(authRL).Post("/auth/password", h.AdminPasswordLogin)
 	r.Post("/auth/logout", h.Logout)
 
 	// Public API
