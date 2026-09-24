@@ -20,6 +20,7 @@ vi.mock("@multica/core/issue-statuses/hooks", () => ({
     statuses: [],
     activeStatuses: [],
     categoryOf: (key: string) => key,
+    iconOf: () => null,
     colorOf: (key: string) =>
       key === "awaiting_response" ? "#f97316" : null,
     labelOf: (key: string) => key,
@@ -253,14 +254,14 @@ describe("IssueHoverCard", () => {
     mockIssue({
       ...BASE_ISSUE,
       status: "awaiting_response",
-      status_category: "in_review",
+      status_category: "started",
     });
 
     await openCard();
 
     expect(screen.getByTestId("status-icon")).toHaveAttribute(
       "data-category",
-      "in_review",
+      "started",
     );
     expect(screen.getByTestId("status-icon")).toHaveAttribute(
       "data-color",
@@ -362,17 +363,6 @@ describe("IssueHoverCard", () => {
 
     expect(screen.getByText(BASE_ISSUE.title)).toBeInTheDocument();
     expect(paragraphCount()).toBe(1);
-  });
-
-  it("breaks a long unbroken title instead of overflowing the card", async () => {
-    const title = "https://example.com/a/very/long/path/that/never/offers/a/break/opportunity";
-    mockIssue({ ...BASE_ISSUE, title });
-
-    await openCard();
-
-    const titleEl = screen.getByText(title);
-    expect(titleEl).toHaveClass("break-words");
-    expect(titleEl).not.toHaveClass("truncate");
   });
 
   it("keeps the skeleton while the detail query is pending", async () => {

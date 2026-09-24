@@ -71,3 +71,16 @@ export interface UnifiedInboxItem extends InboxItem {
   workspace_slug: string;
   workspace_name: string;
 }
+
+export interface ArchivedInboxPage {
+  items: InboxItem[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
+export interface ArchivedInboxFacets {
+  statuses: Record<string, number>;
+  priorities: Record<string, number>;
+  actors: Record<string, number>;
+  unreadCount: number;
+}

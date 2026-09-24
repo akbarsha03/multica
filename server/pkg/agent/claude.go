@@ -103,8 +103,18 @@ func (b *claudeBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 		cancel()
 		return nil, fmt.Errorf("claude stdin pipe: %w", err)
 	}
+	inputWriter := &claudeInputWriter{w: stdin}
+	var supplements *claudeSupplementSession
+	if opts.EnableTaskSupplement {
+		supplements = newClaudeSupplementSession(runCtx)
+	}
 	var closeStdinOnce sync.Once
-	closeStdin := func() { closeStdinOnce.Do(func() { _ = stdin.Close() }) }
+	closeStdin := func() {
+		closeStdinOnce.Do(func() { _ = stdin.Close() })
+		if supplements != nil {
+			supplements.end()
+		}
+	}
 	// Capture stderr into both the daemon log (as before) and a bounded tail
 	// buffer so we can include the last few KB in Result.Error when claude
 	// exits unexpectedly. Without the tail, an exit-code-only failure looks
@@ -147,9 +157,18 @@ func (b *claudeBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 	// timeout.
 	writeDone := make(chan error, 1)
 	go func() {
-		err := writeClaudeInput(stdin, prompt)
+		if supplements != nil {
+			if initErr := supplements.initialize(inputWriter, claudeSupplementHandshakeTimeout); initErr != nil {
+				b.cfg.Logger.Warn("Claude additional messages unavailable; continuing normally", "error", initErr)
+				supplements.end()
+			}
+		}
+		err := writeClaudeInput(inputWriter, prompt)
 		if err != nil {
 			closeStdin()
+			if supplements != nil {
+				cancel()
+			}
 		}
 		writeDone <- err
 	}()
@@ -171,11 +190,14 @@ func (b *claudeBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 		var sessionID string
 		sawAsyncLaunch := false
 		usage := make(map[string]TokenUsage)
+		seenUsage := make(map[string]struct{})
 		eventCount := 0
 		invalidEventCount := 0
 		assistantEventCount := 0
 		toolUseCount := 0
 		unreadableAssistantCount := 0
+		controlErrors := make(chan error, 1)
+		var controlWrites sync.WaitGroup
 
 		// On cancellation / timeout, terminate claude (and every MCP server and
 		// tool subprocess it spawned) BEFORE unblocking the scanner. EOF stdin
@@ -227,7 +249,7 @@ func (b *claudeBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 			switch msg.Type {
 			case "assistant":
 				assistantEventCount++
-				turn := b.handleAssistant(msg, msgCh, usage)
+				turn := b.handleAssistant(msg, msgCh, usage, seenUsage)
 				toolUseCount += turn.toolUses
 				if !turn.understood {
 					unreadableAssistantCount++
@@ -261,7 +283,29 @@ func (b *claudeBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 					})
 				}
 			case "control_request":
-				b.handleControlRequest(msg, stdin)
+				var reply func(io.Writer) error
+				if supplements != nil {
+					reply, _ = supplements.prepareHook(msg)
+				}
+				controlWrites.Add(1)
+				go func(msg claudeSDKMessage, reply func(io.Writer) error) {
+					defer controlWrites.Done()
+					if reply == nil {
+						b.handleControlRequest(msg, inputWriter)
+						return
+					}
+					if err := reply(inputWriter); err != nil {
+						select {
+						case controlErrors <- err:
+						default:
+						}
+						cancel()
+					}
+				}(msg, reply)
+			case "control_response":
+				if supplements != nil {
+					supplements.handleResponse(msg.Response)
+				}
 			}
 		}
 		scanErr := scanner.Err()
@@ -286,6 +330,18 @@ func (b *claudeBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 		// time cmd has exited, the prompt write has either succeeded, hit a
 		// broken pipe, or been unblocked by the kill that ended cmd.
 		writeErr := <-writeDone
+		controlWrites.Wait()
+		if writeErr == nil {
+			select {
+			case writeErr = <-controlErrors:
+			default:
+			}
+		}
+		// Internal protocol failures cancel the process to unblock its pipes.
+		// Preserve the actual failure instead of reporting a user cancellation.
+		if supplements != nil && writeErr != nil && ctx.Err() == nil && terminalReasonError == "" && !errors.Is(runCtx.Err(), context.DeadlineExceeded) {
+			terminalReasonError = fmt.Sprintf("claude input/control protocol failed: %v", writeErr)
+		}
 
 		completionGuardError := ""
 		if sawAsyncLaunch {
@@ -360,10 +416,15 @@ func (b *claudeBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 		}
 	}()
 
-	return &Session{Messages: msgCh, Result: resCh}, nil
+	session := &Session{Messages: msgCh, Result: resCh}
+	if supplements != nil {
+		session.Supplement = supplements.supplement
+		session.SupplementReady = supplements.ready
+	}
+	return session, nil
 }
 
-func (b *claudeBackend) handleAssistant(msg claudeSDKMessage, ch chan<- Message, usage map[string]TokenUsage) assistantTurn {
+func (b *claudeBackend) handleAssistant(msg claudeSDKMessage, ch chan<- Message, usage map[string]TokenUsage, seenUsage map[string]struct{}) assistantTurn {
 	var content claudeMessageContent
 	if err := json.Unmarshal(msg.Message, &content); err != nil {
 		// Unreadable body: understood stays false so the caller drops any
@@ -374,11 +435,22 @@ func (b *claudeBackend) handleAssistant(msg claudeSDKMessage, ch chan<- Message,
 	var assistantText strings.Builder
 	toolUseCount := 0
 
-	// Accumulate token usage per model.
-	if content.Usage != nil && content.Model != "" {
+	// A response can emit several assistant blocks with the same message ID
+	// and usage. Count its input/cache tokens once, without dropping any of
+	// the blocks below. Missing IDs retain best-effort per-event accounting.
+	// This fallback covers only the main loop: assistant output_tokens is a
+	// placeholder, and subagent totals require the final result's modelUsage.
+	// https://code.claude.com/docs/en/agent-sdk/cost-tracking#track-per-step-usage
+	_, counted := seenUsage[content.ID]
+	if msg.ParentToolUseID == "" && content.Usage != nil && content.Model != "" &&
+		(content.ID == "" || !counted) && claudeUsageHasTokens(
+		content.Usage.InputTokens, 0, content.Usage.CacheReadInputTokens, content.Usage.CacheCreationInputTokens,
+	) {
+		if content.ID != "" {
+			seenUsage[content.ID] = struct{}{}
+		}
 		u := usage[content.Model]
 		u.InputTokens += content.Usage.InputTokens
-		u.OutputTokens += content.Usage.OutputTokens
 		u.CacheReadTokens += content.Usage.CacheReadInputTokens
 		u.CacheWriteTokens += content.Usage.CacheCreationInputTokens
 		usage[content.Model] = u
@@ -537,11 +609,12 @@ func claudeMapHasAsyncLaunchStatus(value map[string]any) bool {
 // ── Claude SDK JSON types ──
 
 type claudeSDKMessage struct {
-	Type      string          `json:"type"`
-	Message   json.RawMessage `json:"message,omitempty"`
-	Subtype   string          `json:"subtype,omitempty"`
-	SessionID string          `json:"session_id,omitempty"`
-	Model     string          `json:"model,omitempty"`
+	Type            string          `json:"type"`
+	Message         json.RawMessage `json:"message,omitempty"`
+	Subtype         string          `json:"subtype,omitempty"`
+	SessionID       string          `json:"session_id,omitempty"`
+	Model           string          `json:"model,omitempty"`
+	ParentToolUseID string          `json:"parent_tool_use_id,omitempty"`
 
 	// result fields
 	ResultText string `json:"result,omitempty"`
@@ -561,6 +634,7 @@ type claudeSDKMessage struct {
 	// control request fields
 	RequestID string          `json:"request_id,omitempty"`
 	Request   json.RawMessage `json:"request,omitempty"`
+	Response  json.RawMessage `json:"response,omitempty"`
 }
 
 type claudeLogEntry struct {
@@ -569,6 +643,7 @@ type claudeLogEntry struct {
 }
 
 type claudeMessageContent struct {
+	ID      string               `json:"id"`
 	Role    string               `json:"role"`
 	Model   string               `json:"model"`
 	Content []claudeContentBlock `json:"content"`
@@ -684,12 +759,14 @@ type claudeControlRequestPayload struct {
 
 // ── Shared helpers ──
 
-func trySend(ch chan<- Message, msg Message) {
+func trySend(ch chan<- Message, msg Message) bool {
 	select {
 	case ch <- msg:
+		return true
 	default:
 		// Channel full — drop message. Result.Output is finalized independently,
 		// so only live transcript consumers are affected.
+		return false
 	}
 }
 
@@ -1138,7 +1215,7 @@ func detectCLIVersion(ctx context.Context, runtimeCmd Command) (string, error) {
 	// still applied (MUL-6260).
 	cmd := runtimeCmd.exec(ctx, "--version")
 	hideAgentWindow(cmd)
-	cmd.WaitDelay = 2 * time.Second
+	cmd.WaitDelay = probeWaitDelay
 	data, err := outputOwned(cmd, runtimeCmd.logger)
 	version, recognised := extractVersionLine(string(data))
 	if err != nil {
