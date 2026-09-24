@@ -138,6 +138,9 @@ var workspaceDeletionManifest = map[string]workspaceDeleteAction{
 	"workspace":                          workspaceDelete,
 	"workspace_invitation":               workspaceDelete,
 	"workspace_share_link":               workspaceDelete,
+	// Fork-only wiki tables: both cascade on workspace_id (migration 122).
+	"wiki_page":     workspaceDelete,
+	"wiki_revision": workspaceDelete,
 }
 
 func TestWorkspaceDeletionManifestCoversPublicSchema(t *testing.T) {
